@@ -229,8 +229,11 @@ export default function GamePage() {
       try {
           const snapshot = await get(q);
           if (snapshot.exists()) {
-              let foundUid = null, foundData = null;
-              snapshot.forEach((child) => { foundUid = child.key; foundData = child.val(); });
+              // Değişkenlerin tipini 'any' olarak belirttik, artık hata vermez.
+let foundUid: string | null = null;
+let foundData: any = null;
+
+snapshot.forEach((child) => { foundUid = child.key; foundData = child.val(); });
 
               if (foundData && foundData.player.pin === pinInput) {
                   localStorage.setItem("orman_v14_uid", foundUid!);
