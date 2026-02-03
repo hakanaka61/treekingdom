@@ -5,7 +5,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getDatabase, ref, update, onValue, query, orderByChild, limitToLast, get, equalTo } from "firebase/database";
 
 // ==========================================
-// 1. AYARLAR & PUANLAMA SİSTEMİ
+// 1. AYARLAR & OYUN DENGESİ
 // ==========================================
 const CONFIG = {
   TILE_WIDTH: 128, TILE_HEIGHT: 64,
@@ -13,31 +13,39 @@ const CONFIG = {
   ZOOM_MIN: 0.2, ZOOM_MAX: 1.5,
   OVERLAP_STRENGTH: 1.20,
   
-  BASE_SPAWN_TIME: 30000,
-  BASE_WORK_TIME: 10000,
-  MIN_WORK_TIME: 2000,
+  // DÖNGÜLER
+  BASE_SPAWN_TIME: 30000, // 30 Saniye (Temel Hız)
+  BASE_WORK_TIME: 10000,  // 10 Saniye (Toplama Süresi)
+  MIN_WORK_TIME: 2000,    // 2 Saniye (En hızlı)
   DAY_CYCLE_DURATION: 60000,
 
-  // YENİ RÜTBE SİSTEMİ (Puanlar arttığı için limitler yükseldi)
-  // YENİ DENGELİ RÜTBELER
+  // ORANLAR (Toplam 1.0 olmalı)
+  SPAWN_RATES: {
+      tree: 0.50,  // %50 Ağaç (Yaygın)
+      stone: 0.20, // %20 Taş (Normal)
+      deer: 0.20,  // %20 Geyik (Yemek Kaynağı)
+      gold: 0.10   // %10 Altın (Çok Nadir - Değerli)
+  },
+
   RANKS: [
-      { min: 0, title: "Sürgün", icon: "🍂", color: "#71717a" },     // 0 - 1000
-      { min: 1000, title: "Köylü", icon: "🥉", color: "#a1a1aa" },   // 1000+
-      { min: 5000, title: "Şövalye", icon: "🥈", color: "#60a5fa" },  // 5000+
-      { min: 15000, title: "Lord", icon: "🥇", color: "#facc15" },   // 15000+
-      { min: 50000, title: "İMPARATOR", icon: "👑", color: "#ef4444" } // 50000+
+      { min: 0, title: "Sürgün", icon: "🍂", color: "#71717a" },
+      { min: 1000, title: "Köylü", icon: "🥉", color: "#a1a1aa" },
+      { min: 5000, title: "Şövalye", icon: "🥈", color: "#60a5fa" },
+      { min: 15000, title: "Lord", icon: "🥇", color: "#facc15" },
+      { min: 50000, title: "İMPARATOR", icon: "👑", color: "#ef4444" }
   ],
 
+  // TEKNOLOJİ (Altın geliştirmeleri daha pahalı ve zor)
   UPGRADES: {
       tool: { 
           name: "Elmas Uçlar", icon: "⚒️", 
-          desc: "Kesme süresini düşürür.", baseCost: 150, mult: 1.5, 
-          effectDesc: (lvl: number) => `Süre: ${Math.max(2, 10 - (lvl * 0.8)).toFixed(1)}sn`
+          desc: "Toplama hızını artırır.", baseCost: 150, mult: 1.6, // Maliyet artışı yükseltildi
+          effectDesc: (lvl: number) => `Süre: -${(lvl * 0.8).toFixed(1)}sn`
       },
       nature: { 
           name: "Doğa Çağrısı", icon: "🌱", 
-          desc: "Kaynak çıkışını hızlandırır.", baseCost: 300, mult: 1.6, 
-          effectDesc: (lvl: number) => `Spawn: ${(30 * Math.pow(0.9, lvl)).toFixed(1)}sn`
+          desc: "Spawn hızını artırır.", baseCost: 300, mult: 1.7, 
+          effectDesc: (lvl: number) => `Hız: %${(lvl * 10)} Artış`
       },
       speed: { 
           name: "Hermes Çizmesi", icon: "👟", 
@@ -57,6 +65,7 @@ const CONFIG = {
     tree: '/assets/tree.png',
     stone: '/assets/stone.png',
     gold: '/assets/gold.png',
+    deer: '/assets/deer.png', // GEYİK EKLENDİ
     house: '/assets/house.png',
     castle: '/assets/castle.png',
     worker: '/assets/worker.png',
@@ -157,16 +166,14 @@ export default function GamePage() {
     gs.current.camera.targetX = centerX; gs.current.camera.targetY = centerY;
 
     // Otomatik Giriş
-    const savedUid = localStorage.getItem("orman_v14_uid");
+    const savedUid = localStorage.getItem("orman_v16_uid");
     if (savedUid) {
-        log("Hesap yükleniyor...");
         gs.current.userId = savedUid;
         connectToDb(savedUid);
     } else {
         setLoginModal(true);
     }
 
-    // Lider Tablosu (En yüksek 10 skor)
     const lbRef = query(ref(db, 'leaderboard'), orderByChild('score'), limitToLast(10));
     onValue(lbRef, (snap) => {
         const list: any[] = [];
@@ -196,10 +203,8 @@ export default function GamePage() {
           const val = snap.val();
           if(val) {
               gs.current.player = val.player;
-              // Eksik veri tamamlama
               if(!gs.current.player.upgrades) gs.current.player.upgrades = { tool:0, nature:0, speed:0, cap:0 };
               if(!gs.current.player.resources) gs.current.player.resources = { wood: 50, stone: 0, gold: 0, food: 60 };
-              
               gs.current.entities = val.entities || [];
               updateUi();
           } else {
@@ -229,37 +234,35 @@ export default function GamePage() {
       try {
           const snapshot = await get(q);
           if (snapshot.exists()) {
-              // Değişkenlerin tipini 'any' olarak belirttik, artık hata vermez.
-let foundUid: string | null = null;
-let foundData: any = null;
-
-snapshot.forEach((child) => { foundUid = child.key; foundData = child.val(); });
+              let foundUid: string | null = null;
+              let foundData: any = null;
+              snapshot.forEach((child) => { foundUid = child.key; foundData = child.val(); });
 
               if (foundData && foundData.player.pin === pinInput) {
-                  localStorage.setItem("orman_v14_uid", foundUid!);
+                  localStorage.setItem("orman_v16_uid", foundUid!);
                   gs.current.userId = foundUid;
                   setLoginModal(false);
                   connectToDb(foundUid!);
                   log(`Hoşgeldin İmparator ${cleanName}!`);
               } else {
-                  setLoginError("❌ Hatalı Şifre! Bu krallık senin değil.");
+                  setLoginError("❌ Hatalı Şifre!");
               }
           } else {
               const newUid = "u_" + Date.now() + Math.random().toString(36).substr(2,5);
               gs.current.player.username = cleanName;
               gs.current.player.pin = pinInput;
               gs.current.userId = newUid;
-              localStorage.setItem("orman_v14_uid", newUid);
+              localStorage.setItem("orman_v16_uid", newUid);
               setLoginModal(false);
               initWorld(newUid);
               log(`Yeni Krallık Kuruldu: ${cleanName}`);
           }
       } catch (error) {
-          setLoginError("Bağlantı hatası, tekrar dene.");
+          setLoginError("Bağlantı hatası.");
       }
   };
 
-  // --- OYUN FONKSİYONLARI ---
+  // --- GELİŞMİŞ SPAWN SİSTEMİ (NADİRLİK AYARI) ---
   const spawnRandomResource = (initial = false) => {
       const cx = Math.floor(CONFIG.MAP_SIZE/2);
       let found = false, attempt = 0;
@@ -270,7 +273,14 @@ snapshot.forEach((child) => { foundUid = child.key; foundData = child.val(); });
           if(d < CONFIG.MAP_SIZE/2 - 3 && (Math.abs(rx-cx)>3 || Math.abs(ry-cx)>3)) {
               if(!gs.current.entities.find(e => e.pos.x === rx && e.pos.y === ry)) {
                    const r = Math.random();
-                   const type = r>0.9 ? 'gold' : (r>0.7 ? 'stone' : 'tree');
+                   let type = 'tree';
+                   
+                   // İHTİMAL HESABI (Cumulative Probability)
+                   if (r > (1 - CONFIG.SPAWN_RATES.gold)) type = 'gold'; // En nadir
+                   else if (r > (1 - CONFIG.SPAWN_RATES.gold - CONFIG.SPAWN_RATES.deer)) type = 'deer';
+                   else if (r > (1 - CONFIG.SPAWN_RATES.gold - CONFIG.SPAWN_RATES.deer - CONFIG.SPAWN_RATES.stone)) type = 'stone';
+                   else type = 'tree';
+                   
                    gs.current.entities.push({ id: `n_${Date.now()}_${attempt}`, type, pos: {x:rx, y:ry}, pixelPos: {x:0,y:0}, hp:100, maxHp:100, owner:'nature' });
                    found = true;
               }
@@ -307,43 +317,35 @@ snapshot.forEach((child) => { foundUid = child.key; foundData = child.val(); });
       } else { log(`Yetersiz Odun! (${cost} gerekli)`); }
   };
 
-// --- DÜZELTİLMİŞ PUANLAMA SİSTEMİ ---
   const saveGame = () => {
       if(!gs.current.userId) return;
-      
       const p = gs.current.player;
       let score = 0;
 
-      // 1. KAYNAK PUANLARI (Altın değerli, diğerleri düşük)
-      score += (p.resources.gold || 0) * 5;  // Altın 5 Puan
-      score += (p.resources.stone || 0) * 2; // Taş 2 Puan
-      score += (p.resources.wood || 0) * 1;  // Odun 1 Puan
-      score += (p.resources.food || 0) * 1;  // Yemek 1 Puan
+      // PUANLAMA (Altın çok değerli)
+      score += (p.resources.gold || 0) * 10;
+      score += (p.resources.stone || 0) * 3;
+      score += (p.resources.wood || 0) * 1;
+      score += (p.resources.food || 0) * 1;
 
-      // 2. BİNA VE BİRLİK PUANLARI (AŞIRI DÜŞÜRÜLDÜ)
       gs.current.entities.forEach(e => {
           if (e.owner === gs.current.userId) {
-              if (e.type === 'castle') score += 100; // ESKİSİ 5000 İDİ -> ŞİMDİ 100 (Başlangıç bonusu yok)
-              if (e.type === 'house') score += 50;   // Ev yapmak 50 puan
-              if (e.type === 'worker') score += 10 + ((e.level||1) * 10); // İşçi 10 puan + Level başına 10
+              if (e.type === 'castle') score += 100; 
+              if (e.type === 'house') score += 50;
+              if (e.type === 'worker') score += 10 + ((e.level||1) * 10);
           }
       });
 
-      // 3. TEKNOLOJİ PUANLARI (Yatırım yapan kazanır)
-      const techScore = (p.upgrades.tool + p.upgrades.nature + p.upgrades.speed + p.upgrades.cap) * 100;
+      const techScore = (p.upgrades.tool + p.upgrades.nature + p.upgrades.speed + p.upgrades.cap) * 150;
       score += techScore;
 
-      // Puanı güncelle
       gs.current.player.stats.score = Math.floor(score);
-      
-      // Kaydet
       const updates: any = {};
       updates[`empires_final/${gs.current.userId}`] = { player: gs.current.player, entities: gs.current.entities };
       updates[`leaderboard/${gs.current.userId}`] = { username: gs.current.player.username, score: Math.floor(score) };
-      
       update(ref(db), updates);
   };
-  // --- OYUN DÖNGÜSÜ ---
+
   const updateLogic = () => {
       const now = Date.now();
       gs.current.camera.x += (gs.current.camera.targetX - gs.current.camera.x) * 0.1;
@@ -374,7 +376,7 @@ snapshot.forEach((child) => { foundUid = child.key; foundData = child.val(); });
               if(ent.state === 'IDLE' && !ent.targetId) {
                   let closest=null, min=999;
                   gs.current.entities.forEach(e => {
-                      if((e.type==='tree'||e.type==='stone'||e.type==='gold') && e.hp>0) {
+                      if((e.type==='tree'||e.type==='stone'||e.type==='gold'||e.type==='deer') && e.hp>0) {
                           const d = Math.hypot(e.pos.x-ent.pos.x, e.pos.y-ent.pos.y);
                           if(d<min) { min=d; closest=e; }
                       }
@@ -402,7 +404,9 @@ snapshot.forEach((child) => { foundUid = child.key; foundData = child.val(); });
                   const t = gs.current.entities.find(e => e.id === ent.targetId);
                   if(t && t.hp > 0) {
                       const toolLvl = gs.current.player.upgrades.tool || 0;
-                      const requiredTime = Math.max(CONFIG.MIN_WORK_TIME, CONFIG.BASE_WORK_TIME - (toolLvl * 800));
+                      // ALTIN DAHA ZOR KAZILIR (Süreye +2 saniye ekler)
+                      let difficulty = t.type === 'gold' ? 2000 : 0;
+                      const requiredTime = Math.max(CONFIG.MIN_WORK_TIME, CONFIG.BASE_WORK_TIME + difficulty - (toolLvl * 800));
                       
                       if(Date.now() - ent.workStartTime >= requiredTime) {
                           let val = 20 + (ent.level * 2);
@@ -422,6 +426,11 @@ snapshot.forEach((child) => { foundUid = child.key; foundData = child.val(); });
                               gs.current.player.resources.gold += val;
                               color='#facc15';
                               spawnFloatingText(ent.pixelPos.x, ent.pixelPos.y - 50, `+${val} Altın`, color);
+                          }
+                          if(t.type==='deer') {
+                              gs.current.player.resources.food += val;
+                              color='#fb923c';
+                              spawnFloatingText(ent.pixelPos.x, ent.pixelPos.y - 50, `+${val} Et`, color);
                           }
                           
                           ent.xp = (ent.xp||0) + 10;
@@ -580,15 +589,15 @@ snapshot.forEach((child) => { foundUid = child.key; foundData = child.val(); });
       
       {loginModal && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur">
-            <div className="bg-slate-800 p-8 rounded-2xl w-80 text-center border border-white/10">
-                <h2 className="text-2xl font-bold mb-4 text-blue-400">Orman Online</h2>
-                <input type="text" placeholder="İmparator Adı" className="w-full bg-slate-900 p-3 rounded mb-2 border border-gray-600 outline-none text-white"
+            <div className="bg-slate-800 p-8 rounded-2xl w-80 text-center border border-white/10 shadow-2xl">
+                <h2 className="text-3xl font-bold mb-4 text-blue-400 font-mono tracking-widest">ORMAN ONLİNE</h2>
+                <input type="text" placeholder="İmparator Adı" className="w-full bg-slate-900 p-3 rounded mb-2 border border-gray-600 outline-none text-white text-center"
                    value={usernameInput} onChange={e=>setUsernameInput(e.target.value)} maxLength={12} />
-                <input type="password" placeholder="4 Haneli Şifre" className="w-full bg-slate-900 p-3 rounded mb-4 border border-gray-600 outline-none text-white tracking-widest text-center"
+                <input type="password" placeholder="PIN (4 Hane)" className="w-full bg-slate-900 p-3 rounded mb-4 border border-gray-600 outline-none text-white tracking-[0.5em] text-center font-bold"
                    value={pinInput} onChange={e=>setPinInput(e.target.value)} maxLength={4} inputMode="numeric" />
                 
-                {loginError && <div className="text-red-400 text-xs mb-3">{loginError}</div>}
-                <button onClick={handleLogin} className="w-full bg-blue-600 py-3 rounded font-bold hover:bg-blue-500 shadow-lg transition">GİRİŞ YAP / KAYIT OL ⚔️</button>
+                {loginError && <div className="text-red-400 text-xs mb-3 bg-red-900/20 p-2 rounded">{loginError}</div>}
+                <button onClick={handleLogin} className="w-full bg-blue-600 py-3 rounded font-bold hover:bg-blue-500 shadow-lg transition active:scale-95 border border-blue-400/50">GİRİŞ YAP / KAYIT OL ⚔️</button>
             </div>
         </div>
       )}
@@ -596,9 +605,9 @@ snapshot.forEach((child) => { foundUid = child.key; foundData = child.val(); });
       {techModal && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
             <div className="bg-slate-900 rounded-2xl border border-white/20 w-full max-w-lg p-6 shadow-2xl">
-                <div className="flex justify-between items-center mb-6">
+                <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4">
                     <h2 className="text-2xl font-bold text-purple-400">🧪 Teknoloji</h2>
-                    <button onClick={()=>setTechModal(false)} className="text-red-400 font-bold">✕</button>
+                    <button onClick={()=>setTechModal(false)} className="text-red-400 font-bold hover:bg-red-900/20 px-3 py-1 rounded">KAPAT</button>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                     {(['tool', 'nature', 'speed', 'cap'] as const).map(key => {
@@ -606,13 +615,13 @@ snapshot.forEach((child) => { foundUid = child.key; foundData = child.val(); });
                         const lvl = upgradesUI[key] || 0;
                         const cost = Math.floor(conf.baseCost * Math.pow(conf.mult, lvl));
                         return (
-                            <div key={key} className="bg-slate-800 p-4 rounded-xl border border-white/5 group relative">
-                                <div className="absolute top-2 right-2 text-xs text-gray-500 font-mono">Lvl {lvl}</div>
+                            <div key={key} className="bg-slate-800 p-4 rounded-xl border border-white/5 group relative hover:border-purple-500/50 transition">
+                                <div className="absolute top-2 right-2 text-xs text-gray-500 font-mono bg-black/50 px-2 rounded">Lvl {lvl}</div>
                                 <div className="text-3xl mb-1">{conf.icon}</div>
                                 <div className="font-bold text-gray-200">{conf.name}</div>
-                                <div className="text-[10px] text-gray-400 h-8">{conf.desc}</div>
+                                <div className="text-[10px] text-gray-400 h-8 leading-tight">{conf.desc}</div>
                                 <div className="text-xs text-green-400 font-mono mb-2">{conf.effectDesc(lvl)}</div>
-                                <button onClick={()=>buyUpgrade(key)} className="w-full bg-slate-700 hover:bg-purple-600 py-2 rounded text-xs border border-white/10 transition">
+                                <button onClick={()=>buyUpgrade(key)} className="w-full bg-slate-700 hover:bg-purple-600 py-2 rounded text-xs border border-white/10 transition active:scale-95">
                                     {lvl>=10 ? "MAX" : `${cost} Odun`}
                                 </button>
                             </div>
@@ -623,16 +632,37 @@ snapshot.forEach((child) => { foundUid = child.key; foundData = child.val(); });
         </div>
       )}
 
-      <div className="absolute top-4 right-4 bg-black/60 p-3 rounded-xl border border-yellow-500/30 w-56 pointer-events-none z-20 backdrop-blur-sm">
-          <h3 className="text-yellow-400 font-bold text-xs border-b border-white/10 pb-1 mb-1">🏆 LİDERLER (Top 10)</h3>
+      {/* YENİ KAYNAK BARI (ÜST ORTA) - HUD TASARIMI */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex gap-2 pointer-events-none">
+          <div className="flex gap-4 bg-black/60 backdrop-blur-md px-6 py-2 rounded-full border border-white/10 shadow-2xl">
+              <ResItem i="🌲" v={ui.res.wood} t="Odun" c="text-emerald-400" />
+              <div className="w-px bg-white/10"></div>
+              <ResItem i="🪨" v={ui.res.stone} t="Taş" c="text-stone-300" />
+              <div className="w-px bg-white/10"></div>
+              <ResItem i="💰" v={ui.res.gold} t="Altın" c="text-yellow-400" />
+              <div className="w-px bg-white/10"></div>
+              <ResItem i="🍗" v={ui.res.food} t="Et" c="text-orange-400" />
+              <div className="w-px bg-white/10"></div>
+              <div className="flex flex-col items-center justify-center">
+                   <div className="flex items-center gap-1">
+                       <span className="text-lg">👥</span>
+                       <span className="font-mono font-bold text-white">{ui.pop}<span className="text-gray-500">/</span>{ui.maxPop}</span>
+                   </div>
+              </div>
+          </div>
+      </div>
+
+      {/* LİDER TABLOSU (SAĞ ÜST) - SIKIŞTIRILMIŞ */}
+      <div className="absolute top-4 right-4 bg-black/60 p-3 rounded-xl border border-yellow-500/30 w-48 pointer-events-none z-20 backdrop-blur-sm">
+          <h3 className="text-yellow-400 font-bold text-[10px] border-b border-white/10 pb-1 mb-1 tracking-widest text-center">🏆 LİDERLER</h3>
           {leaderboard.map((p,i) => {
               const rank = getRank(p.score);
               return (
-                <div key={i} className="flex justify-between text-xs mb-1 items-center">
-                    <div className="flex items-center gap-1">
-                        <span>{i+1}.</span>
+                <div key={i} className="flex justify-between text-[10px] mb-1 items-center">
+                    <div className="flex items-center gap-1 overflow-hidden">
+                        <span className="text-gray-500 w-3">{i+1}.</span>
                         <span title={rank.title}>{rank.icon}</span>
-                        <span className={`${p.username===gs.current.player.username ? 'text-green-400 font-bold' : 'text-gray-300'}`}>{p.username}</span>
+                        <span className={`${p.username===gs.current.player.username ? 'text-green-400 font-bold' : 'text-gray-300'} truncate w-20`}>{p.username.split('#')[0]}</span>
                     </div>
                     <span className="text-yellow-600 font-mono">{p.score}</span>
                 </div>
@@ -640,37 +670,31 @@ snapshot.forEach((child) => { foundUid = child.key; foundData = child.val(); });
           })}
       </div>
 
-      <div className="absolute top-4 left-4 flex gap-3 bg-black/60 p-2 rounded-xl border border-white/10 z-20 backdrop-blur-sm pointer-events-none">
-          <ResBox i="🌲" v={ui.res.wood} />
-          <ResBox i="🪨" v={ui.res.stone} />
-          <ResBox i="💰" v={ui.res.gold} c="text-yellow-400" />
-          <ResBox i="🍗" v={ui.res.food} c="text-orange-400" />
-          <div className="flex flex-col items-center min-w-[30px] border-l border-white/10 pl-2">
-              <span className="text-lg">👥</span><span className="font-bold text-sm">{ui.pop}/{ui.maxPop}</span>
+      {/* ALT MENÜ VE SAYAÇLAR (YENİ KONUM) */}
+      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-auto z-20">
+          
+          {/* SAYAÇLAR (MENÜNÜN ÜSTÜNDE) */}
+          <div className="flex gap-4 text-xs font-mono font-bold bg-black/40 px-3 py-1 rounded-full border border-white/5 backdrop-blur-sm mb-1">
+              <span className="text-green-400">Yeni Kaynak: {ui.nextSpawn}s</span>
           </div>
-          <div className="flex flex-col items-center min-w-[30px] border-l border-white/10 pl-2">
-              <span className="text-lg">🌱</span><span className="font-bold text-sm text-green-400">{ui.nextSpawn}s</span>
-          </div>
-      </div>
 
-      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex gap-3 pointer-events-auto z-20">
-          <div className="bg-black/80 p-3 rounded-2xl border border-white/10 flex gap-2 backdrop-blur-sm shadow-xl">
+          <div className="bg-black/80 p-3 rounded-2xl border border-white/10 flex gap-2 backdrop-blur-sm shadow-xl relative">
             <Btn i="👷" l="İşçi" sub="60 Et" onClick={spawnUnit} desc="Kaynak toplar" />
             <div className="w-px bg-white/20"></div>
-            <Btn i="🏠" l="Ev" sub="100 Odun" onClick={()=>setBuildMode('house')} act={buildMode==='house'} desc="Görsel (500 Puan)" />
-            <Btn i="🏰" l="Kale" sub="500 Odun" onClick={()=>setBuildMode('castle')} act={buildMode==='castle'} desc="Merkez (5000 Puan)" />
+            <Btn i="🏠" l="Ev" sub="100 Odun" onClick={()=>setBuildMode('house')} act={buildMode==='house'} desc="Görsel (50 P)" />
+            <Btn i="🏰" l="Kale" sub="500 Odun" onClick={()=>setBuildMode('castle')} act={buildMode==='castle'} desc="Merkez (100 P)" />
             <div className="w-px bg-white/20"></div>
-            <Btn i="🧪" l="Tekno" sub="Yükselt" onClick={()=>setTechModal(true)} act={techModal} desc="Hız ve Puan" />
+            <Btn i="🧪" l="Tekno" sub="Yükselt" onClick={()=>setTechModal(true)} act={techModal} desc="Gelişim" />
           </div>
       </div>
 
       <div className="absolute top-24 left-4 flex flex-col gap-2 pointer-events-auto z-20">
-          <button onClick={()=>handleZoom(0.1)} className="bg-slate-700 w-10 h-10 rounded shadow hover:bg-slate-600 text-xl font-bold">+</button>
-          <button onClick={()=>handleZoom(-0.1)} className="bg-slate-700 w-10 h-10 rounded shadow hover:bg-slate-600 text-xl font-bold">-</button>
+          <button onClick={()=>handleZoom(0.1)} className="bg-slate-700 w-10 h-10 rounded shadow hover:bg-slate-600 text-xl font-bold border border-white/10 text-white">+</button>
+          <button onClick={()=>handleZoom(-0.1)} className="bg-slate-700 w-10 h-10 rounded shadow hover:bg-slate-600 text-xl font-bold border border-white/10 text-white">-</button>
       </div>
       
-      <div className="absolute bottom-32 left-4 pointer-events-none opacity-80 flex flex-col items-start gap-1 z-10">
-          {logs.map((l,i)=><div key={i} className="text-xs bg-black/60 px-2 py-1 rounded text-gray-200">{l}</div>)}
+      <div className="absolute bottom-4 left-4 pointer-events-none opacity-60 flex flex-col items-start gap-1 z-10">
+          {logs.map((l,i)=><div key={i} className="text-[10px] bg-black/60 px-2 py-1 rounded text-gray-200 border-l-2 border-blue-500">{l}</div>)}
       </div>
 
       <canvas ref={canvasRef} className="block w-full h-full cursor-grab active:cursor-grabbing"
@@ -682,14 +706,22 @@ snapshot.forEach((child) => { foundUid = child.key; foundData = child.val(); });
   );
 }
 
-const ResBox = ({i,v,c="text-white"}:any) => (
-    <div className="flex flex-col items-center min-w-[40px]"><span className="text-xl drop-shadow">{i}</span><span className={`font-mono font-bold text-sm ${c}`}>{Math.floor(v)}</span></div>
+const ResItem = ({i,v,t,c}:any) => (
+    <div className="flex flex-col items-center min-w-[36px] group relative">
+        <span className="text-xl drop-shadow-md">{i}</span>
+        <span className={`font-mono font-bold text-xs ${c}`}>{Math.floor(v)}</span>
+        <div className="absolute top-full mt-1 hidden group-hover:block bg-black text-[10px] text-white px-1 rounded">{t}</div>
+    </div>
 );
+
 const Btn = ({i,l,sub,onClick,act,desc}:any) => (
-    <button onClick={onClick} className={`group relative flex flex-col items-center justify-center w-16 h-16 rounded-xl border transition active:scale-95 ${act?'bg-purple-700 border-purple-500':'bg-transparent border-transparent hover:bg-white/10'}`}>
-        <span className="text-3xl group-hover:-translate-y-1 transition-transform">{i}</span>
-        <span className="text-[10px] uppercase font-bold mt-1 text-gray-300">{l}</span>
-        <span className="text-[8px] text-yellow-500">{sub}</span>
-        <div className="absolute bottom-full mb-2 hidden group-hover:block w-32 bg-black/90 text-white text-[10px] p-2 rounded border border-white/20 z-50 pointer-events-none">{desc}</div>
+    <button onClick={onClick} className={`group relative flex flex-col items-center justify-center w-14 h-14 rounded-xl border transition-all active:scale-95 duration-200 ${act?'bg-purple-700 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.5)]':'bg-transparent border-transparent hover:bg-white/10'}`}>
+        <span className="text-2xl group-hover:-translate-y-1 transition-transform duration-300">{i}</span>
+        <span className="text-[9px] uppercase font-bold mt-0.5 text-gray-300">{l}</span>
+        <span className="text-[8px] text-yellow-500 font-mono">{sub}</span>
+        <div className="absolute bottom-full mb-3 hidden group-hover:block w-28 bg-black/90 text-white text-[10px] p-2 rounded border border-white/20 z-50 pointer-events-none shadow-lg text-center backdrop-blur-sm">
+            {desc}
+            <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-black/90"></div>
+        </div>
     </button>
 );
