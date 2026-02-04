@@ -5,7 +5,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getDatabase, ref, update, onValue, query, orderByChild, limitToLast, get, equalTo } from "firebase/database";
 
 // ==========================================
-// 1. AYARLAR & OYUN DENGESİ (V18.0)
+// 1. AYARLAR & OYUN DENGESİ (V18.1)
 // ==========================================
 const CONFIG = {
   TILE_WIDTH: 128, TILE_HEIGHT: 64,
@@ -19,13 +19,13 @@ const CONFIG = {
   DAY_CYCLE_DURATION: 60000,
   MANA_REGEN_RATE: 1, // Saniyede 1 Mana
 
-  // ORANLAR (Geyik artırıldı)
+  // ORANLAR
   SPAWN_RATES: {
-      tree: 0.45,   // %45 Ağaç (Azaltıldı)
+      tree: 0.45,   // %45 Ağaç
       stone: 0.20,  // %20 Taş
-      deer: 0.25,   // %25 Geyik (Artırıldı!)
+      deer: 0.25,   // %25 Geyik
       gold: 0.08,   // %8 Altın
-      chest: 0.02   // %2 Hazine Sandığı (YENİ)
+      chest: 0.02   // %2 Hazine Sandığı
   },
 
   RANKS: [
@@ -66,11 +66,11 @@ const CONFIG = {
     stone: '/assets/stone.png',
     gold: '/assets/gold.png',
     deer: '/assets/deer.png',
-    chest: '/assets/chest.png', // YENİ
+    chest: '/assets/chest.png',
     house: '/assets/house.png',
     castle: '/assets/castle.png',
     worker: '/assets/worker.png',
-    king: '/assets/king.png',   // YENİ
+    king: '/assets/king.png',
   }
 };
 
@@ -226,7 +226,6 @@ export default function GamePage() {
       onValue(ref(db, `empires_final/${uid}`), (snap) => {
           const val = snap.val();
           if(val) {
-              // Veri birleştirme ve eksik tamamlama (V18 uyumu)
               gs.current.player = {
                   ...gs.current.player,
                   ...val.player,
@@ -305,10 +304,9 @@ export default function GamePage() {
                    let type = 'tree';
                    const S = CONFIG.SPAWN_RATES;
                    
-                   // V18 GELİŞMİŞ SPAWN (Sandık ve Geyik dahil)
-                   if (r > (1 - S.chest)) type = 'chest'; // %2 Hazine
+                   if (r > (1 - S.chest)) type = 'chest'; 
                    else if (r > (1 - S.chest - S.gold)) type = 'gold'; 
-                   else if (r > (1 - S.chest - S.gold - S.deer)) type = 'deer'; // %25 Geyik
+                   else if (r > (1 - S.chest - S.gold - S.deer)) type = 'deer'; 
                    else if (r > (1 - S.chest - S.gold - S.deer - S.stone)) type = 'stone';
                    else type = 'tree';
                    
@@ -319,6 +317,22 @@ export default function GamePage() {
           attempt++;
       }
   };
+
+  // --- EKSİK OLAN FONKSİYON EKLENDİ ---
+  const buyUpgrade = (type: 'tool' | 'nature' | 'speed' | 'cap') => {
+      const conf = CONFIG.UPGRADES[type];
+      const lvl = gs.current.player.upgrades[type] || 0;
+      if(lvl >= 10) return;
+      const cost = Math.floor(conf.baseCost * Math.pow(conf.mult, lvl));
+      if(gs.current.player.resources.wood >= cost) {
+          gs.current.player.resources.wood -= cost;
+          gs.current.player.upgrades[type]++;
+          if(type === 'cap') gs.current.player.maxPop += 5;
+          updateUi(); saveGame();
+          log(`${conf.name} geliştirildi!`);
+      } else { log(`Yetersiz Odun! (${cost} gerekli)`); }
+  };
+  // ------------------------------------
 
   const castSpell = (spell: 'speed' | 'nature') => {
       const p = gs.current.player;
@@ -436,7 +450,6 @@ export default function GamePage() {
       gs.current.particles.forEach(p => { p.y -= p.velocityY; p.life--; });
       gs.current.particles = gs.current.particles.filter(p => p.life > 0);
 
-      // KRAL BUFF KONTROLÜ
       const king = gs.current.entities.find(e => e.type === 'king' && e.owner === gs.current.userId);
 
       gs.current.entities.forEach(ent => {
@@ -450,7 +463,6 @@ export default function GamePage() {
               if(ent.type === 'worker' || ent.type === 'king') {
                   if(!ent.level) ent.level = 1;
 
-                  // Kral Buff'ı (Aura)
                   let isBuffed = gs.current.spellActive;
                   if(king && ent.type === 'worker') {
                       const distToKing = Math.hypot(ent.pos.x - king.pos.x, ent.pos.y - king.pos.y);
@@ -459,7 +471,6 @@ export default function GamePage() {
                   ent.isBuffed = isBuffed;
 
                   if(ent.state === 'IDLE' && !ent.targetId) {
-                      // Kral kaynak toplamaz, sadece yürür
                       if(ent.type === 'king') return; 
 
                       let closest=null, min=999;
@@ -484,12 +495,12 @@ export default function GamePage() {
                       dist = Math.hypot(dx, dy);
 
                       if(dist < 0.1) {
-                          if(ent.type === 'king') { ent.state = 'IDLE'; ent.targetPos = null; } // Kral hedefe vardı
+                          if(ent.type === 'king') { ent.state = 'IDLE'; ent.targetPos = null; } 
                           else { ent.state = 'WORK'; ent.workStartTime = Date.now(); }
                       } else {
                           const speedLvl = gs.current.player.upgrades.speed || 0;
                           let speed = 0.05 + (ent.level * 0.005) + (speedLvl * 0.01);
-                          if(ent.isBuffed) speed *= 1.5; // Hız buff
+                          if(ent.isBuffed) speed *= 1.5; 
                           ent.pos.x += (dx/dist)*speed;
                           ent.pos.y += (dy/dist)*speed;
                       }
@@ -499,10 +510,10 @@ export default function GamePage() {
                       if(t && t.hp > 0) {
                           const toolLvl = gs.current.player.upgrades.tool || 0;
                           let difficulty = t.type === 'gold' ? 2000 : 0;
-                          if(t.type === 'chest') difficulty = -2000; // Sandık hızlı açılır
+                          if(t.type === 'chest') difficulty = -2000; 
 
                           let requiredTime = Math.max(CONFIG.MIN_WORK_TIME, CONFIG.BASE_WORK_TIME + difficulty - (toolLvl * 800));
-                          if(ent.isBuffed) requiredTime /= 1.5; // Çalışma hızı buff
+                          if(ent.isBuffed) requiredTime /= 1.5; 
 
                           if(Date.now() - ent.workStartTime >= requiredTime) {
                               let val = 20 + (ent.level * 2);
@@ -521,7 +532,7 @@ export default function GamePage() {
                                   spawnFloatingText(ent.pixelPos.x, ent.pixelPos.y - 50, `+${val} Altın`, color); 
                               }
                               if(t.type==='deer') { 
-                                  let meat = val + 10; // Daha fazla et
+                                  let meat = val + 10; 
                                   gs.current.player.resources.food += meat; color='#fb923c'; 
                                   gs.current.player.stats.totalDeer += 1;
                                   updateQuest('deer', 1);
@@ -558,7 +569,6 @@ export default function GamePage() {
     if(e.type==='mousedown' || e.type==='touchstart') {
         gs.current.input.isDragging=true; gs.current.input.lastX=cx; gs.current.input.lastY=cy;
         
-        // ZEMİNE TIKLAMA (KRAL HAREKETİ)
         if(!buildMode) {
              const rect = canvasRef.current!.getBoundingClientRect();
              const mcx = (e.clientX || e.touches?.[0]?.clientX) - rect.left;
@@ -570,7 +580,6 @@ export default function GamePage() {
              const iy = Math.round((adjY/halfH - adjX/halfW) / 2);
              const ix = Math.round((adjY/halfH + adjX/halfW) / 2);
              
-             // Eğer boş bir yere tıklandıysa ve Kral varsa
              const clickedEnt = gs.current.entities.find(en => en.pos.x === ix && en.pos.y === iy);
              if(!clickedEnt) {
                  const king = gs.current.entities.find(k => k.type === 'king' && k.owner === gs.current.userId);
@@ -632,6 +641,11 @@ export default function GamePage() {
       } else { log(`Yetersiz Kaynak (${type==='worker'?'60 Et':'500 Altın'})`); }
   };
 
+  const handleZoom = (d: number) => {
+      let z = gs.current.camera.zoom + d;
+      gs.current.camera.zoom = Math.max(CONFIG.ZOOM_MIN, Math.min(CONFIG.ZOOM_MAX, z));
+  };
+
   const render = () => {
     const cvs = canvasRef.current;
     if(!cvs || !cvs.getContext('2d')) return;
@@ -670,7 +684,6 @@ export default function GamePage() {
             const h = (img.height/img.width) * w;
             const drawY = pos.y - h + (CONFIG.TILE_HEIGHT * zoom * 0.9);
             
-            // Seçili birim efekti
             if(ent.isBuffed) {
                 ctx.beginPath(); ctx.ellipse(pos.x, drawY + h - 10, w/3, w/6, 0, 0, Math.PI*2);
                 ctx.fillStyle = "rgba(250, 204, 21, 0.4)"; ctx.fill();
@@ -683,7 +696,7 @@ export default function GamePage() {
                 if(ent.state === 'WORK') {
                     const barW = 40 * zoom;
                     ctx.fillStyle = '#333'; ctx.fillRect(pos.x - barW/2, drawY - 15, barW, 4);
-                    ctx.fillStyle = '#fbbf24'; ctx.fillRect(pos.x - barW/2, drawY - 15, barW * (Date.now() - ent.workStartTime)/10000, 4); // Basit visual
+                    ctx.fillStyle = '#fbbf24'; ctx.fillRect(pos.x - barW/2, drawY - 15, barW * (Date.now() - ent.workStartTime)/10000, 4);
                 }
             }
         }
@@ -699,11 +712,6 @@ export default function GamePage() {
     });
   };
 
-  const handleZoom = (d: number) => {
-      let z = gs.current.camera.zoom + d;
-      gs.current.camera.zoom = Math.max(CONFIG.ZOOM_MIN, Math.min(CONFIG.ZOOM_MAX, z));
-  };
-
   return (
     <div className="fixed inset-0 bg-gray-900 text-white select-none overflow-hidden touch-none font-sans">
       
@@ -715,12 +723,12 @@ export default function GamePage() {
                    value={usernameInput} onChange={e=>setUsernameInput(e.target.value)} maxLength={12} />
                 <input type="password" placeholder="PIN" className="w-full bg-slate-900 p-3 rounded mb-4 border border-gray-600 outline-none text-white tracking-widest text-center"
                    value={pinInput} onChange={e=>setPinInput(e.target.value)} maxLength={4} inputMode="numeric" />
+                {loginError && <div className="text-red-400 text-xs mb-3">{loginError}</div>}
                 <button onClick={handleLogin} className="w-full bg-emerald-600 py-3 rounded font-bold hover:bg-emerald-500 shadow-lg">BAŞLA ⚔️</button>
             </div>
         </div>
       )}
 
-      {/* TECH MODAL */}
       {techModal && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
             <div className="bg-slate-900 rounded-2xl border border-white/20 w-full max-w-lg p-6">
@@ -747,7 +755,6 @@ export default function GamePage() {
         </div>
       )}
 
-       {/* ACHIEVEMENTS MODAL */}
        {showAchievements && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
             <div className="bg-slate-900 rounded-2xl border border-white/20 w-full max-w-lg p-6">
@@ -817,7 +824,6 @@ export default function GamePage() {
       {/* ALT MENÜ & MANA & GÖREV */}
       <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-auto z-20 w-full px-4">
           
-          {/* GÜNLÜK GÖREV & MANA BARI */}
           <div className="flex gap-2 w-full max-w-md justify-center">
                <div className="bg-black/60 px-3 py-1 rounded-full border border-blue-500/30 flex items-center gap-2">
                    <span className="text-xs text-blue-400 font-bold">MANA:</span>
