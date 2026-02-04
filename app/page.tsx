@@ -9,22 +9,22 @@ import { getDatabase, ref, update, onValue, query, orderByChild, limitToLast, ge
 // ==========================================
 const CONFIG = {
   TILE_WIDTH: 128, TILE_HEIGHT: 64,
-  MAP_SIZE: 40,
+  MAP_SIZE: 60, // HARİTA BÜYÜTÜLDÜ (40 -> 60)
   ZOOM_MIN: 0.2, ZOOM_MAX: 1.5,
   OVERLAP_STRENGTH: 1.20,
   
   // DÖNGÜLER
-  BASE_SPAWN_TIME: 30000, // 30 Saniye (Temel Hız)
-  BASE_WORK_TIME: 10000,  // 10 Saniye (Toplama Süresi)
-  MIN_WORK_TIME: 2000,    // 2 Saniye (En hızlı)
+  BASE_SPAWN_TIME: 30000, 
+  BASE_WORK_TIME: 10000,  
+  MIN_WORK_TIME: 2000,    
   DAY_CYCLE_DURATION: 60000,
 
-  // ORANLAR (Toplam 1.0 olmalı)
+  // ORANLAR
   SPAWN_RATES: {
-      tree: 0.50,  // %50 Ağaç (Yaygın)
-      stone: 0.20, // %20 Taş (Normal)
-      deer: 0.20,  // %20 Geyik (Yemek Kaynağı)
-      gold: 0.10   // %10 Altın (Çok Nadir - Değerli)
+      tree: 0.50,  
+      stone: 0.20, 
+      deer: 0.20,  
+      gold: 0.10   
   },
 
   RANKS: [
@@ -35,11 +35,10 @@ const CONFIG = {
       { min: 50000, title: "İMPARATOR", icon: "👑", color: "#ef4444" }
   ],
 
-  // TEKNOLOJİ (Altın geliştirmeleri daha pahalı ve zor)
   UPGRADES: {
       tool: { 
           name: "Elmas Uçlar", icon: "⚒️", 
-          desc: "Toplama hızını artırır.", baseCost: 150, mult: 1.6, // Maliyet artışı yükseltildi
+          desc: "Toplama hızını artırır.", baseCost: 150, mult: 1.6, 
           effectDesc: (lvl: number) => `Süre: -${(lvl * 0.8).toFixed(1)}sn`
       },
       nature: { 
@@ -65,7 +64,7 @@ const CONFIG = {
     tree: '/assets/tree.png',
     stone: '/assets/stone.png',
     gold: '/assets/gold.png',
-    deer: '/assets/deer.png', // GEYİK EKLENDİ
+    deer: '/assets/deer.png',
     house: '/assets/house.png',
     castle: '/assets/castle.png',
     worker: '/assets/worker.png',
@@ -133,6 +132,9 @@ export default function GamePage() {
   const [loginModal, setLoginModal] = useState(false);
   const [techModal, setTechModal] = useState(false);
   
+  // YENİ: Lider tablosunu açıp kapamak için state
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+
   const [usernameInput, setUsernameInput] = useState("");
   const [pinInput, setPinInput] = useState("");
   const [loginError, setLoginError] = useState("");
@@ -165,8 +167,7 @@ export default function GamePage() {
     gs.current.camera.x = centerX; gs.current.camera.y = centerY;
     gs.current.camera.targetX = centerX; gs.current.camera.targetY = centerY;
 
-    // Otomatik Giriş
-    const savedUid = localStorage.getItem("orman_v16_uid");
+    const savedUid = localStorage.getItem("orman_v17_uid");
     if (savedUid) {
         gs.current.userId = savedUid;
         connectToDb(savedUid);
@@ -239,7 +240,7 @@ export default function GamePage() {
               snapshot.forEach((child) => { foundUid = child.key; foundData = child.val(); });
 
               if (foundData && foundData.player.pin === pinInput) {
-                  localStorage.setItem("orman_v16_uid", foundUid!);
+                  localStorage.setItem("orman_v17_uid", foundUid!);
                   gs.current.userId = foundUid;
                   setLoginModal(false);
                   connectToDb(foundUid!);
@@ -252,7 +253,7 @@ export default function GamePage() {
               gs.current.player.username = cleanName;
               gs.current.player.pin = pinInput;
               gs.current.userId = newUid;
-              localStorage.setItem("orman_v16_uid", newUid);
+              localStorage.setItem("orman_v17_uid", newUid);
               setLoginModal(false);
               initWorld(newUid);
               log(`Yeni Krallık Kuruldu: ${cleanName}`);
@@ -262,7 +263,6 @@ export default function GamePage() {
       }
   };
 
-  // --- GELİŞMİŞ SPAWN SİSTEMİ (NADİRLİK AYARI) ---
   const spawnRandomResource = (initial = false) => {
       const cx = Math.floor(CONFIG.MAP_SIZE/2);
       let found = false, attempt = 0;
@@ -275,8 +275,7 @@ export default function GamePage() {
                    const r = Math.random();
                    let type = 'tree';
                    
-                   // İHTİMAL HESABI (Cumulative Probability)
-                   if (r > (1 - CONFIG.SPAWN_RATES.gold)) type = 'gold'; // En nadir
+                   if (r > (1 - CONFIG.SPAWN_RATES.gold)) type = 'gold'; 
                    else if (r > (1 - CONFIG.SPAWN_RATES.gold - CONFIG.SPAWN_RATES.deer)) type = 'deer';
                    else if (r > (1 - CONFIG.SPAWN_RATES.gold - CONFIG.SPAWN_RATES.deer - CONFIG.SPAWN_RATES.stone)) type = 'stone';
                    else type = 'tree';
@@ -322,7 +321,6 @@ export default function GamePage() {
       const p = gs.current.player;
       let score = 0;
 
-      // PUANLAMA (Altın çok değerli)
       score += (p.resources.gold || 0) * 10;
       score += (p.resources.stone || 0) * 3;
       score += (p.resources.wood || 0) * 1;
@@ -404,7 +402,6 @@ export default function GamePage() {
                   const t = gs.current.entities.find(e => e.id === ent.targetId);
                   if(t && t.hp > 0) {
                       const toolLvl = gs.current.player.upgrades.tool || 0;
-                      // ALTIN DAHA ZOR KAZILIR (Süreye +2 saniye ekler)
                       let difficulty = t.type === 'gold' ? 2000 : 0;
                       const requiredTime = Math.max(CONFIG.MIN_WORK_TIME, CONFIG.BASE_WORK_TIME + difficulty - (toolLvl * 800));
                       
@@ -587,17 +584,17 @@ export default function GamePage() {
   return (
     <div className="fixed inset-0 bg-gray-900 text-white select-none overflow-hidden touch-none font-sans">
       
+      {/* GİRİŞ MODALI (Aynı) */}
       {loginModal && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur">
             <div className="bg-slate-800 p-8 rounded-2xl w-80 text-center border border-white/10 shadow-2xl">
-                <h2 className="text-3xl font-bold mb-4 text-blue-400 font-mono tracking-widest">ORMAN ONLİNE</h2>
+                <h2 className="text-3xl font-bold mb-4 text-emerald-400 font-serif tracking-widest">TREE KINGDOM</h2>
                 <input type="text" placeholder="İmparator Adı" className="w-full bg-slate-900 p-3 rounded mb-2 border border-gray-600 outline-none text-white text-center"
                    value={usernameInput} onChange={e=>setUsernameInput(e.target.value)} maxLength={12} />
                 <input type="password" placeholder="PIN (4 Hane)" className="w-full bg-slate-900 p-3 rounded mb-4 border border-gray-600 outline-none text-white tracking-[0.5em] text-center font-bold"
                    value={pinInput} onChange={e=>setPinInput(e.target.value)} maxLength={4} inputMode="numeric" />
-                
                 {loginError && <div className="text-red-400 text-xs mb-3 bg-red-900/20 p-2 rounded">{loginError}</div>}
-                <button onClick={handleLogin} className="w-full bg-blue-600 py-3 rounded font-bold hover:bg-blue-500 shadow-lg transition active:scale-95 border border-blue-400/50">GİRİŞ YAP / KAYIT OL ⚔️</button>
+                <button onClick={handleLogin} className="w-full bg-emerald-600 py-3 rounded font-bold hover:bg-emerald-500 shadow-lg transition active:scale-95 border border-emerald-400/50">OYUNA BAŞLA ⚔️</button>
             </div>
         </div>
       )}
@@ -632,58 +629,81 @@ export default function GamePage() {
         </div>
       )}
 
-      {/* YENİ KAYNAK BARI (ÜST ORTA) - HUD TASARIMI */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex gap-2 pointer-events-none">
-          <div className="flex gap-4 bg-black/60 backdrop-blur-md px-6 py-2 rounded-full border border-white/10 shadow-2xl">
-              <ResItem i="🌲" v={ui.res.wood} t="Odun" c="text-emerald-400" />
-              <div className="w-px bg-white/10"></div>
-              <ResItem i="🪨" v={ui.res.stone} t="Taş" c="text-stone-300" />
-              <div className="w-px bg-white/10"></div>
-              <ResItem i="💰" v={ui.res.gold} t="Altın" c="text-yellow-400" />
-              <div className="w-px bg-white/10"></div>
-              <ResItem i="🍗" v={ui.res.food} t="Et" c="text-orange-400" />
-              <div className="w-px bg-white/10"></div>
-              <div className="flex flex-col items-center justify-center">
-                   <div className="flex items-center gap-1">
-                       <span className="text-lg">👥</span>
-                       <span className="font-mono font-bold text-white">{ui.pop}<span className="text-gray-500">/</span>{ui.maxPop}</span>
-                   </div>
+      {/* --- ÜST BAR (MOBİL UYUMLU) --- */}
+      <div className="absolute top-4 left-0 right-0 z-20 flex justify-center px-4">
+          <div className="flex items-center gap-3">
+             
+             {/* 1. OYUN ADI LOGOSU (KÜÇÜK) */}
+             <div className="hidden md:block bg-black/60 px-3 py-2 rounded-lg border border-white/10 font-serif font-bold text-emerald-400 text-sm">
+                 TREE KINGDOM
+             </div>
+
+             {/* 2. KAYNAK BARI (MOBİL OPTİMİZE) */}
+             <div className="flex gap-2 sm:gap-4 bg-black/70 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 shadow-xl overflow-hidden">
+                <ResItem i="🌲" v={ui.res.wood} c="text-emerald-400" />
+                <div className="w-px bg-white/10"></div>
+                <ResItem i="🪨" v={ui.res.stone} c="text-stone-300" />
+                <div className="w-px bg-white/10"></div>
+                <ResItem i="💰" v={ui.res.gold} c="text-yellow-400" />
+                <div className="w-px bg-white/10"></div>
+                <ResItem i="🍗" v={ui.res.food} c="text-orange-400" />
+                <div className="w-px bg-white/10"></div>
+                <div className="flex flex-col items-center justify-center min-w-[30px]">
+                   <span className="text-xs font-mono font-bold text-white">{ui.pop}/{ui.maxPop}</span>
+                   <span className="text-[8px] text-gray-400">NÜFUS</span>
+                </div>
+             </div>
+
+             {/* 3. LİDERLİK BUTONU (AÇILIR KAPANIR) */}
+             <button 
+                onClick={() => setShowLeaderboard(!showLeaderboard)}
+                className={`flex items-center justify-center w-10 h-10 rounded-full border transition-all ${showLeaderboard ? 'bg-yellow-600 border-yellow-400 text-white' : 'bg-black/60 border-white/10 text-yellow-500 hover:bg-black/80'}`}
+             >
+                 🏆
+             </button>
+          </div>
+      </div>
+
+      {/* AÇILIR LİDERLİK PANELİ (Butona basınca görünür) */}
+      {showLeaderboard && (
+          <div className="absolute top-16 right-4 z-30 bg-black/90 backdrop-blur-md p-4 rounded-xl border border-yellow-500/30 w-56 shadow-2xl animate-in fade-in slide-in-from-top-2">
+              <div className="flex justify-between items-center border-b border-white/10 pb-2 mb-2">
+                  <h3 className="text-yellow-400 font-bold text-xs tracking-widest">LİDER TABLOSU</h3>
+                  <button onClick={()=>setShowLeaderboard(false)} className="text-gray-500 text-xs hover:text-white">✕</button>
+              </div>
+              <div className="max-h-60 overflow-y-auto">
+                  {leaderboard.map((p,i) => {
+                      const rank = getRank(p.score);
+                      return (
+                        <div key={i} className="flex justify-between text-[10px] mb-2 items-center">
+                            <div className="flex items-center gap-2 overflow-hidden">
+                                <span className="text-gray-500 w-4 font-mono">{i+1}.</span>
+                                <span title={rank.title} className="text-lg">{rank.icon}</span>
+                                <div className="flex flex-col">
+                                    <span className={`${p.username===gs.current.player.username ? 'text-green-400 font-bold' : 'text-gray-300'} truncate w-24`}>{p.username.split('#')[0]}</span>
+                                    <span className="text-[8px] text-gray-500">{rank.title}</span>
+                                </div>
+                            </div>
+                            <span className="text-yellow-600 font-mono font-bold">{p.score}</span>
+                        </div>
+                      )
+                  })}
               </div>
           </div>
-      </div>
+      )}
 
-      {/* LİDER TABLOSU (SAĞ ÜST) - SIKIŞTIRILMIŞ */}
-      <div className="absolute top-4 right-4 bg-black/60 p-3 rounded-xl border border-yellow-500/30 w-48 pointer-events-none z-20 backdrop-blur-sm">
-          <h3 className="text-yellow-400 font-bold text-[10px] border-b border-white/10 pb-1 mb-1 tracking-widest text-center">🏆 LİDERLER</h3>
-          {leaderboard.map((p,i) => {
-              const rank = getRank(p.score);
-              return (
-                <div key={i} className="flex justify-between text-[10px] mb-1 items-center">
-                    <div className="flex items-center gap-1 overflow-hidden">
-                        <span className="text-gray-500 w-3">{i+1}.</span>
-                        <span title={rank.title}>{rank.icon}</span>
-                        <span className={`${p.username===gs.current.player.username ? 'text-green-400 font-bold' : 'text-gray-300'} truncate w-20`}>{p.username.split('#')[0]}</span>
-                    </div>
-                    <span className="text-yellow-600 font-mono">{p.score}</span>
-                </div>
-              )
-          })}
-      </div>
-
-      {/* ALT MENÜ VE SAYAÇLAR (YENİ KONUM) */}
-      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-auto z-20">
-          
-          {/* SAYAÇLAR (MENÜNÜN ÜSTÜNDE) */}
+      {/* ALT MENÜ */}
+      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-auto z-20 w-full px-4">
           <div className="flex gap-4 text-xs font-mono font-bold bg-black/40 px-3 py-1 rounded-full border border-white/5 backdrop-blur-sm mb-1">
-              <span className="text-green-400">Yeni Kaynak: {ui.nextSpawn}s</span>
+              <span className="text-green-400 animate-pulse">Yeni Kaynak: {ui.nextSpawn}s</span>
           </div>
 
-          <div className="bg-black/80 p-3 rounded-2xl border border-white/10 flex gap-2 backdrop-blur-sm shadow-xl relative">
+          <div className="bg-black/80 p-2 rounded-2xl border border-white/10 flex gap-1 sm:gap-2 backdrop-blur-sm shadow-xl relative overflow-x-auto max-w-full">
             <Btn i="👷" l="İşçi" sub="60 Et" onClick={spawnUnit} desc="Kaynak toplar" />
-            <div className="w-px bg-white/20"></div>
+            <div className="w-px bg-white/20 mx-1"></div>
             <Btn i="🏠" l="Ev" sub="100 Odun" onClick={()=>setBuildMode('house')} act={buildMode==='house'} desc="Görsel (50 P)" />
             <Btn i="🏰" l="Kale" sub="500 Odun" onClick={()=>setBuildMode('castle')} act={buildMode==='castle'} desc="Merkez (100 P)" />
-            <div className="w-px bg-white/20"></div>
+            <div className="w-px bg-white/20 mx-1"></div>
             <Btn i="🧪" l="Tekno" sub="Yükselt" onClick={()=>setTechModal(true)} act={techModal} desc="Gelişim" />
           </div>
       </div>
@@ -693,7 +713,7 @@ export default function GamePage() {
           <button onClick={()=>handleZoom(-0.1)} className="bg-slate-700 w-10 h-10 rounded shadow hover:bg-slate-600 text-xl font-bold border border-white/10 text-white">-</button>
       </div>
       
-      <div className="absolute bottom-4 left-4 pointer-events-none opacity-60 flex flex-col items-start gap-1 z-10">
+      <div className="absolute bottom-4 left-4 pointer-events-none opacity-60 flex flex-col items-start gap-1 z-10 hidden sm:flex">
           {logs.map((l,i)=><div key={i} className="text-[10px] bg-black/60 px-2 py-1 rounded text-gray-200 border-l-2 border-blue-500">{l}</div>)}
       </div>
 
@@ -706,22 +726,21 @@ export default function GamePage() {
   );
 }
 
-const ResItem = ({i,v,t,c}:any) => (
-    <div className="flex flex-col items-center min-w-[36px] group relative">
-        <span className="text-xl drop-shadow-md">{i}</span>
-        <span className={`font-mono font-bold text-xs ${c}`}>{Math.floor(v)}</span>
-        <div className="absolute top-full mt-1 hidden group-hover:block bg-black text-[10px] text-white px-1 rounded">{t}</div>
+// MOBİL OPTİMİZE KAYNAK İTEMİ
+const ResItem = ({i,v,c}:any) => (
+    <div className="flex flex-col items-center min-w-[24px] sm:min-w-[36px]">
+        <span className="text-lg sm:text-xl drop-shadow-md">{i}</span>
+        <span className={`font-mono font-bold text-[10px] sm:text-xs ${c}`}>{Math.floor(v)}</span>
     </div>
 );
 
 const Btn = ({i,l,sub,onClick,act,desc}:any) => (
-    <button onClick={onClick} className={`group relative flex flex-col items-center justify-center w-14 h-14 rounded-xl border transition-all active:scale-95 duration-200 ${act?'bg-purple-700 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.5)]':'bg-transparent border-transparent hover:bg-white/10'}`}>
-        <span className="text-2xl group-hover:-translate-y-1 transition-transform duration-300">{i}</span>
-        <span className="text-[9px] uppercase font-bold mt-0.5 text-gray-300">{l}</span>
-        <span className="text-[8px] text-yellow-500 font-mono">{sub}</span>
+    <button onClick={onClick} className={`group relative flex flex-col items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-xl border transition-all active:scale-95 duration-200 ${act?'bg-purple-700 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.5)]':'bg-transparent border-transparent hover:bg-white/10'}`}>
+        <span className="text-xl sm:text-2xl group-hover:-translate-y-1 transition-transform duration-300">{i}</span>
+        <span className="text-[8px] sm:text-[9px] uppercase font-bold mt-0.5 text-gray-300">{l}</span>
+        <span className="text-[7px] sm:text-[8px] text-yellow-500 font-mono">{sub}</span>
         <div className="absolute bottom-full mb-3 hidden group-hover:block w-28 bg-black/90 text-white text-[10px] p-2 rounded border border-white/20 z-50 pointer-events-none shadow-lg text-center backdrop-blur-sm">
             {desc}
-            <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-black/90"></div>
         </div>
     </button>
 );
