@@ -5,7 +5,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getDatabase, ref, update, onValue, query, orderByChild, limitToLast, get, equalTo } from "firebase/database";
 
 // ==========================================
-// 1. KONFİGÜRASYON & SABİTLER
+// 1. AYARLAR & OYUN DENGESİ (V26.0 FINAL)
 // ==========================================
 const CONFIG = {
   TILE_WIDTH: 128, TILE_HEIGHT: 64,
@@ -21,12 +21,12 @@ const CONFIG = {
   BASE_STORAGE: 500,
 
   BUILDINGS: {
-      house: { name: "Köy Evi", cost: 100, res: 'wood', score: 50, desc: "Nüfus Limitini +5 Artırır.", scale: 1.3 },
-      farm: { name: "Çiftlik", cost: 200, res: 'wood', score: 100, desc: "Pasif Yemek Üretir.", scale: 1.3 },
-      storage: { name: "Depo", cost: 400, res: 'wood', score: 150, desc: "Depo Kapasitesini +1000 Artırır.", scale: 1.2 },
-      barracks: { name: "Kışla", cost: 500, res: 'stone', score: 200, desc: "Asker Üretim Merkezi.", scale: 1.5 },
-      tower: { name: "Kule", cost: 300, res: 'wood', score: 200, desc: "Her 10sn'de +10 Altın kazandırır.", scale: 1.4 },
-      castle: { name: "Kale", cost: 1000, res: 'wood', score: 5000, desc: "İmparatorluk Merkezi.", scale: 1.6 }
+      house: { name: "Köy Evi", cost: 100, res: 'wood', score: 50, desc: "Nüfus +5", scale: 1.3 },
+      farm: { name: "Çiftlik", cost: 200, res: 'wood', score: 100, desc: "Pasif Yemek", scale: 1.3 },
+      storage: { name: "Depo", cost: 400, res: 'wood', score: 150, desc: "Kapasite +1000", scale: 1.2 },
+      barracks: { name: "Kışla", cost: 500, res: 'stone', score: 200, desc: "Asker Üretimi", scale: 1.5 },
+      tower: { name: "Kule", cost: 300, res: 'wood', score: 200, desc: "Pasif Altın (+10)", scale: 1.4 },
+      castle: { name: "Kale", cost: 1000, res: 'wood', score: 5000, desc: "Merkez", scale: 1.6 }
   } as Record<string, any>,
 
   TRADES: [
@@ -258,11 +258,9 @@ export default function GamePage() {
       const trade = CONFIG.TRADES.find(t => t.id === tradeId);
       if(!trade) return;
       const p = gs.current.player;
-      
       const giveType = trade.giveType as keyof typeof p.resources;
       const getType = trade.getType as keyof typeof p.resources;
 
-      // Kaynak kontrolü (KESİN)
       if(p.resources[giveType] >= trade.giveAmount) {
           p.resources[giveType] -= trade.giveAmount;
           p.resources[getType] += trade.getAmount;
@@ -272,11 +270,6 @@ export default function GamePage() {
           spawnFloatingText(0,0, "Yetersiz Kaynak!", "red");
           setInfoText(`Yetersiz ${giveType}! (${trade.giveAmount} gerekli)`); 
       }
-  };
-
-  const handleZoom = (d: number) => {
-      let z = gs.current.camera.zoom + d;
-      gs.current.camera.zoom = Math.max(CONFIG.ZOOM_MIN, Math.min(CONFIG.ZOOM_MAX, z));
   };
 
   const buyUpgrade = (type: 'tool' | 'nature' | 'speed' | 'cap') => {
@@ -365,7 +358,6 @@ export default function GamePage() {
       update(ref(db), updates);
   };
 
-  // --- İŞÇİ AI DÜZELTMESİ (Gelişmiş Hedefleme) ---
   const updateLogic = () => {
       const now = Date.now(); 
       gs.current.player.mana = Math.min(gs.current.player.maxMana, gs.current.player.mana + (CONFIG.MANA_REGEN_RATE / 60));
@@ -396,7 +388,7 @@ export default function GamePage() {
       gs.current.particles.forEach(p => { p.y -= p.velocityY; p.life--; }); gs.current.particles = gs.current.particles.filter(p => p.life > 0);
       const king = gs.current.entities.find(e => e.type === 'king' && e.owner === gs.current.userId);
 
-      // SAHİPLENİLMİŞ HEDEFLER LİSTESİ (ÇAKIŞMAYI ÖNLER)
+      // --- İŞÇİ AI DÜZELTMESİ (GLOBAL HEDEF REZERVASYONU) ---
       const claimedTargets = new Set();
       gs.current.entities.forEach(e => { if(e.owner === gs.current.userId && e.targetId) claimedTargets.add(e.targetId); });
 
@@ -446,7 +438,6 @@ export default function GamePage() {
                       
                       let closest=null, min=999;
                       gs.current.entities.forEach(e => {
-                          // HEDEF KONTROLÜ: Başkası almış mı?
                           if(!claimedTargets.has(e.id)) {
                               if((e.type==='tree'||e.type==='stone'||e.type==='gold'||e.type==='deer'||e.type==='chest') && e.hp>0) {
                                   const d = Math.hypot(e.pos.x-ent.pos.x, e.pos.y-ent.pos.y);
@@ -457,7 +448,7 @@ export default function GamePage() {
                       if(closest && min<30) { 
                           ent.targetId = (closest as any).id; 
                           ent.state = 'MOVE'; 
-                          claimedTargets.add(ent.targetId); // Hedefi kilitle
+                          claimedTargets.add(ent.targetId); // HEDEFİ KAPAT
                       }
                   }
                   else if(ent.state === 'MOVE' && (ent.targetId || ent.targetPos)) {
@@ -578,7 +569,6 @@ export default function GamePage() {
     const cam = gs.current.camera; const zoom = cam.zoom;
     const toScreen = (gx: number, gy: number) => ({ x: (gx - gy) * (CONFIG.TILE_WIDTH/2) * zoom + cvs.width/2 - cam.x, y: (gx + gy) * (CONFIG.TILE_HEIGHT/2) * zoom + cvs.height/2 - cam.y });
     
-    // ZEMİN VE FOG RENDER
     for(let x=0; x<CONFIG.MAP_SIZE; x++) { for(let y=0; y<CONFIG.MAP_SIZE; y++) { 
         const pos = toScreen(x,y); if(pos.x<-200||pos.x>cvs.width+200||pos.y<-200||pos.y>cvs.height+200) continue; 
         if(!gs.current.fog[x][y]) {
@@ -629,7 +619,7 @@ export default function GamePage() {
               {Object.entries(CONFIG.BUILDINGS).map(([key, b]) => (
                   <button key={key} onClick={()=>{setBuildMode(key); setActiveMenu('none'); setInfoText("Yeri seç ve inşa et.");}} className="w-full bg-slate-800 p-2 rounded mb-2 flex justify-between items-center hover:bg-orange-900/30">
                       <div><div className="font-bold text-sm">{b.name}</div><div className="text-[10px] text-gray-400">{b.desc}</div></div>
-                      <div className="flex flex-col items-end"><span className="text-yellow-500 font-mono text-xs">{b.cost} {b.res}</span></div>
+                      <span className="text-yellow-500 font-mono text-xs">{b.cost} {b.res}</span>
                   </button>
               ))}
           </div>
@@ -648,9 +638,11 @@ export default function GamePage() {
       {techModal && ( <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"> <div className="bg-slate-900 rounded-2xl border border-white/20 w-full max-w-lg p-6"> <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4"> <h2 className="text-2xl font-bold text-purple-400">🧪 Teknoloji</h2> <button onClick={()=>setTechModal(false)} className="text-red-400 font-bold">KAPAT</button> </div> <div className="grid grid-cols-2 gap-4"> {(['tool', 'nature', 'speed', 'cap'] as const).map(key => { const conf = CONFIG.UPGRADES[key]; const lvl = upgradesUI[key] || 0; const cost = Math.floor(conf.baseCost * Math.pow(conf.mult, lvl)); return ( <div key={key} className="bg-slate-800 p-4 rounded-xl border border-white/5"> <div className="text-2xl mb-1">{conf.icon}</div> <div className="font-bold text-gray-200">{conf.name} <span className="text-xs text-gray-500">Lvl {lvl}</span></div> <div className="text-xs text-green-400 mb-2">{conf.effectDesc(lvl)}</div> <button onClick={()=>buyUpgrade(key)} className="w-full bg-slate-700 py-2 rounded text-xs">{lvl>=10?"MAX":`${cost} Odun`}</button> </div> ) })} </div> </div> </div> )}
       {showAchievements && ( <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"> <div className="bg-slate-900 rounded-2xl border border-white/20 w-full max-w-lg p-6"> <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4"> <h2 className="text-2xl font-bold text-yellow-400">🎖️ Başarımlar</h2> <button onClick={()=>setShowAchievements(false)} className="text-red-400 font-bold">KAPAT</button> </div> <div className="grid grid-cols-1 gap-2 max-h-80 overflow-y-auto"> {ACHIEVEMENTS_LIST.map(ac => { const unlocked = gs.current.player.achievements.includes(ac.id); return ( <div key={ac.id} className={`p-3 rounded-lg border flex items-center gap-3 ${unlocked ? 'bg-yellow-900/20 border-yellow-500/50' : 'bg-slate-800 border-white/5 opacity-50'}`}> <span className="text-2xl">{ac.icon}</span> <div> <div className={`font-bold ${unlocked?'text-yellow-400':'text-gray-400'}`}>{ac.name}</div> <div className="text-xs text-gray-500">{ac.desc}</div> </div> {unlocked && <span className="ml-auto text-green-400 font-bold">✓</span>} </div> ) })} </div> </div> </div> )}
 
+      {/* ÜST BAR */}
       <div className="absolute top-4 left-0 right-0 z-20 flex justify-center px-4"> <div className="flex items-center gap-2"> <div className="flex gap-2 sm:gap-4 bg-black/70 backdrop-blur-md px-4 py-2 rounded-full border border-yellow-500/20 shadow-xl overflow-hidden"> <ResItem i="🌲" v={ui.res.wood} c="text-emerald-400" /> <div className="w-px bg-white/10"></div> <ResItem i="🪨" v={ui.res.stone} c="text-stone-300" /> <div className="w-px bg-white/10"></div> <ResItem i="💰" v={ui.res.gold} c="text-yellow-400" /> <div className="w-px bg-white/10"></div> <ResItem i="🍗" v={ui.res.food} c="text-orange-400" /> <div className="w-px bg-white/10"></div> <div className="flex flex-col items-center"> <span className="text-xs font-mono font-bold text-white">{ui.pop}/{ui.maxPop}</span> <span className="text-[8px] text-gray-400">NÜFUS</span> </div> </div> <button onClick={() => setShowLeaderboard(!showLeaderboard)} className="w-10 h-10 rounded-full bg-black/60 border border-white/10 text-yellow-500">🏆</button> <button onClick={() => setShowAchievements(!showAchievements)} className="w-10 h-10 rounded-full bg-black/60 border border-white/10 text-orange-500">🎖️</button> <button onClick={() => setShowTutorial(true)} className="w-10 h-10 rounded-full bg-black/60 border border-white/10 text-emerald-400 font-bold text-xl">?</button> </div> </div>
       {showLeaderboard && ( <div className="absolute top-16 right-4 z-30 bg-black/90 backdrop-blur-md p-4 rounded-xl border border-yellow-500/30 w-56 shadow-2xl"> <div className="flex justify-between items-center border-b border-white/10 pb-2 mb-2"> <h3 className="text-yellow-400 font-bold text-xs">LİDER TABLOSU</h3> <button onClick={()=>setShowLeaderboard(false)} className="text-gray-500">✕</button> </div> <div className="max-h-60 overflow-y-auto"> {leaderboard.map((p,i) => ( <div key={i} className="flex justify-between text-[10px] mb-2"> <span>{i+1}. {p.username.split('#')[0]}</span> <span className="text-yellow-600 font-bold">{p.score}</span> </div> ))} </div> </div> )}
 
+      {/* ALT MENÜ (KOMPAKT) */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-auto z-20 w-full px-2">
           <div className="bg-black/80 px-4 py-1 rounded-lg border border-yellow-500/30 text-[10px] text-yellow-100 font-bold mb-1 shadow-lg text-center min-w-[150px]"> {infoText} </div>
           <div className="flex gap-2 w-full max-w-md justify-center mb-1"> <div className="bg-black/60 px-2 py-1 rounded-full border border-blue-500/30 flex items-center gap-2"> <span className="text-[10px] text-blue-400 font-bold">MANA:</span> <div className="w-16 h-1.5 bg-gray-700 rounded-full overflow-hidden"><div className="h-full bg-blue-500" style={{width:`${ui.mana}%`}}></div></div> </div> {ui.quest.active && ( <div className="bg-black/60 px-2 py-1 rounded-full border border-green-500/30 text-[10px] text-green-300"> ⚔️ {ui.quest.desc} </div> )} <div className="bg-black/60 px-2 py-1 rounded-full border border-orange-500/30 text-[10px] text-orange-300"> 📦 {Math.floor(ui.cap)} </div> </div>
