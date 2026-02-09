@@ -5,7 +5,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getDatabase, ref, update, onValue, query, orderByChild, limitToLast, get, equalTo } from "firebase/database";
 
 // ==========================================
-// 1. AYARLAR & OYUN DENGESİ (V23.0)
+// 1. KONFİGÜRASYON & SABİTLER
 // ==========================================
 const CONFIG = {
   TILE_WIDTH: 128, TILE_HEIGHT: 64,
@@ -18,44 +18,30 @@ const CONFIG = {
   MIN_WORK_TIME: 2000,    
   DAY_CYCLE_DURATION: 60000,
   MANA_REGEN_RATE: 0.5, 
+  BASE_STORAGE: 500,
 
-  // BİNA AYARLARI
   BUILDINGS: {
-      house: { name: "Köy Evi", cost: 100, res: 'wood', score: 50, desc: "Nüfus +5", scale: 1.3 },
-      tower: { name: "Kule", cost: 300, res: 'wood', score: 200, desc: "Pasif Altın (+10)", scale: 1.4 },
-      castle: { name: "Kale", cost: 1000, res: 'wood', score: 5000, desc: "Merkez", scale: 1.6 }
+      house: { name: "Köy Evi", cost: 100, res: 'wood', score: 50, desc: "Nüfus Limitini +5 Artırır.", scale: 1.3 },
+      farm: { name: "Çiftlik", cost: 200, res: 'wood', score: 100, desc: "Pasif Yemek Üretir.", scale: 1.3 },
+      storage: { name: "Depo", cost: 400, res: 'wood', score: 150, desc: "Depo Kapasitesini +1000 Artırır.", scale: 1.2 },
+      barracks: { name: "Kışla", cost: 500, res: 'stone', score: 200, desc: "Asker Üretim Merkezi.", scale: 1.5 },
+      tower: { name: "Kule", cost: 300, res: 'wood', score: 200, desc: "Her 10sn'de +10 Altın kazandırır.", scale: 1.4 },
+      castle: { name: "Kale", cost: 1000, res: 'wood', score: 5000, desc: "İmparatorluk Merkezi.", scale: 1.6 }
   } as Record<string, any>,
 
-  // PAZAR TAKASLARI
   TRADES: [
-      { id: 1, give: { type: 'wood', amount: 200 }, get: { type: 'gold', amount: 20 }, desc: "Odun Sat (200 -> 20 Altın)" },
-      { id: 2, give: { type: 'stone', amount: 100 }, get: { type: 'gold', amount: 50 }, desc: "Taş Sat (100 -> 50 Altın)" },
-      { id: 3, give: { type: 'gold', amount: 100 }, get: { type: 'wood', amount: 500 }, desc: "Odun Al (100 Altın -> 500 Odun)" }
+      { id: 1, giveType: 'wood', giveAmount: 200, getType: 'gold', getAmount: 20, desc: "Odun Sat", sub: "200 Odun -> 20 Altın" },
+      { id: 2, giveType: 'stone', giveAmount: 100, getType: 'gold', getAmount: 50, desc: "Taş Sat", sub: "100 Taş -> 50 Altın" },
+      { id: 3, giveType: 'gold', giveAmount: 100, getType: 'wood', getAmount: 500, desc: "Odun Al", sub: "100 Altın -> 500 Odun" }
   ],
 
-  // GÖRSEL BOYUTLANDIRMA
   SCALE_FACTORS: {
-      king: 1.8,    // Kral ÇOK BÜYÜK
-      castle: 1.6,  
-      house: 1.4,   
-      tower: 1.5,   
-      worker: 0.9,  
-      tree: 1.1,    
-      deer: 0.8,    
-      chest: 1.0,   
-      stone: 1.0,
-      gold: 1.0
+      king: 1.8, castle: 1.6, house: 1.4, tower: 1.5, barracks: 1.5, farm: 1.3, storage: 1.2,
+      worker: 0.9, soldier: 1.0, barbarian: 1.0, 
+      tree: 1.1, deer: 0.8, chest: 1.0, stone: 1.0, gold: 1.0
   } as Record<string, number>,
 
   SPAWN_RATES: { tree: 0.35, stone: 0.20, deer: 0.35, gold: 0.08, chest: 0.02 },
-
-  RANKS: [
-      { min: 0, title: "Sürgün", icon: "🍂", color: "#71717a" },
-      { min: 1000, title: "Köylü", icon: "🥉", color: "#a1a1aa" },
-      { min: 5000, title: "Şövalye", icon: "🥈", color: "#60a5fa" },
-      { min: 15000, title: "Lord", icon: "🥇", color: "#facc15" },
-      { min: 50000, title: "İMPARATOR", icon: "👑", color: "#ef4444" }
-  ],
 
   UPGRADES: {
       tool: { name: "Elmas Uçlar", icon: "⚒️", desc: "Toplama hızı.", baseCost: 150, mult: 1.6, effectDesc: (lvl: number) => `Süre: -${(lvl * 0.8).toFixed(1)}sn` },
@@ -69,6 +55,8 @@ const CONFIG = {
     stone: '/assets/stone.png', gold: '/assets/gold.png', deer: '/assets/deer.png',
     chest: '/assets/chest.png', house: '/assets/house.png', castle: '/assets/castle.png',
     tower: '/assets/tower.png', worker: '/assets/worker.png', king: '/assets/king.png',
+    barracks: '/assets/barracks.png', farm: '/assets/farm.png', storage: '/assets/storage.png',
+    soldier: '/assets/soldier.png', barbarian: '/assets/barbarian.png'
   }
 };
 
@@ -76,6 +64,7 @@ const ACHIEVEMENTS_LIST = [
     { id: 'wood1k', name: 'Odun Kralı', desc: '1000 Odun Topla', icon: '🌲', target: 1000, type: 'wood' },
     { id: 'hunt100', name: 'Usta Avcı', desc: '100 Geyik Avla', icon: '🏹', target: 100, type: 'deer' },
     { id: 'gold500', name: 'Hazine Avcısı', desc: '500 Altın Topla', icon: '💎', target: 500, type: 'gold' },
+    { id: 'warrior', name: 'Savaşçı', desc: '10 Barbar Yok Et', icon: '⚔️', target: 10, type: 'kill' },
     { id: 'score50k', name: 'İmparator', desc: '50.000 Puan Yap', icon: '👑', target: 50000, type: 'score' }
 ];
 
@@ -102,29 +91,31 @@ const AssetManager = {
   }
 };
 
+// ==========================================
+// 2. OYUN MOTORU
+// ==========================================
 export default function GamePage() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   
   const gs = useRef({
-    map: [] as number[][], entities: [] as any[], particles: [] as any[],
+    map: [] as number[][], fog: [] as boolean[][], entities: [] as any[], particles: [] as any[],
     player: { 
         username: "", pin: "", resources: { wood: 50, stone: 0, gold: 0, food: 60 }, 
-        stats: { score: 0, totalWood: 0, totalDeer: 0, totalGold: 0 }, 
+        stats: { score: 0, totalWood: 0, totalDeer: 0, totalGold: 0, kills: 0 }, 
         upgrades: { tool: 0, nature: 0, speed: 0, cap: 0 },
         mana: 100, maxMana: 100, achievements: [] as string[],
         quest: { desc: "Görevi Al", target: 0, current: 0, type: 'wood', reward: 0, active: false },
-        maxPop: 5,
-        heroLevel: 1 // YENİ: Kahraman Seviyesi
+        maxPop: 5, heroLevel: 1, storageCap: CONFIG.BASE_STORAGE
     },
     camera: { x: 0, y: 0, targetX: 0, targetY: 0, zoom: 0.5 },
     input: { isDragging: false, canClick: false, startX: 0, startY: 0, lastX: 0, lastY: 0 },
     userId: null as string | null, isLoaded: false, lastTime: Date.now(),
     nextSpawnTime: Date.now() + CONFIG.BASE_SPAWN_TIME, lastIncomeTime: Date.now(),
-    timeOfDay: 0, spellActive: false
+    timeOfDay: 0, spellActive: false, nightMode: false
   });
 
   const [ui, setUi] = useState({ 
-      res: gs.current.player.resources, pop: 0, maxPop: 5, nextSpawn: 30, mana: 100, quest: gs.current.player.quest, heroLvl: 1 
+      res: gs.current.player.resources, pop: 0, maxPop: 5, nextSpawn: 30, mana: 100, quest: gs.current.player.quest, heroLvl: 1, cap: CONFIG.BASE_STORAGE 
   });
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [loginModal, setLoginModal] = useState(false);
@@ -133,9 +124,8 @@ export default function GamePage() {
   const [showAchievements, setShowAchievements] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
   const [infoText, setInfoText] = useState("İmparatorluğunu Kur!");
-  
   const [activeMenu, setActiveMenu] = useState<'none' | 'build' | 'magic' | 'market'>('none');
-  const [hasKing, setHasKing] = useState(false); // Kral var mı kontrolü
+  const [hasKing, setHasKing] = useState(false);
 
   const [usernameInput, setUsernameInput] = useState("");
   const [pinInput, setPinInput] = useState("");
@@ -148,21 +138,22 @@ export default function GamePage() {
 
   useEffect(() => {
     AssetManager.loadAll(); gs.current.isLoaded = true;
-    const map = [];
+    const map = [], fog = [];
     for(let x=0; x<CONFIG.MAP_SIZE; x++) {
-      const row = [];
+      const row = [], fogRow = [];
       for(let y=0; y<CONFIG.MAP_SIZE; y++) {
          const d = Math.sqrt((x-CONFIG.MAP_SIZE/2)**2 + (y-CONFIG.MAP_SIZE/2)**2);
          row.push(d > CONFIG.MAP_SIZE/2 - 3 ? 1 : 0);
+         fogRow.push(false);
       }
-      map.push(row);
+      map.push(row); fog.push(fogRow);
     }
-    gs.current.map = map;
+    gs.current.map = map; gs.current.fog = fog;
     const centerX = 0; const centerY = (CONFIG.MAP_SIZE) * (CONFIG.TILE_HEIGHT/2);
     gs.current.camera.x = centerX; gs.current.camera.y = centerY;
     gs.current.camera.targetX = centerX; gs.current.camera.targetY = centerY;
 
-    const savedUid = localStorage.getItem("orman_v23_uid");
+    const savedUid = localStorage.getItem("orman_v25_uid");
     if (savedUid) { gs.current.userId = savedUid; connectToDb(savedUid); } else { setLoginModal(true); }
 
     const lbRef = query(ref(db, 'leaderboard'), orderByChild('score'), limitToLast(10));
@@ -174,7 +165,11 @@ export default function GamePage() {
     
     const uiTimer = setInterval(() => {
         const timeLeft = Math.max(0, Math.ceil((gs.current.nextSpawnTime - Date.now()) / 1000));
-        setUi(prev => ({ ...prev, nextSpawn: timeLeft, mana: Math.floor(gs.current.player.mana), quest: gs.current.player.quest, heroLvl: gs.current.player.heroLevel || 1 }));
+        setUi(prev => ({ 
+            ...prev, nextSpawn: timeLeft, mana: Math.floor(gs.current.player.mana), 
+            quest: gs.current.player.quest, heroLvl: gs.current.player.heroLevel || 1,
+            cap: gs.current.player.storageCap
+        }));
         setHasKing(gs.current.entities.some(e => e.type === 'king' && e.owner === gs.current.userId));
     }, 1000);
     const saveTimer = setInterval(saveGame, 5000);
@@ -186,12 +181,14 @@ export default function GamePage() {
           const val = snap.val();
           if(val) {
               gs.current.player = { ...gs.current.player, ...val.player,
-                  stats: val.player.stats || { score:0, totalWood:0, totalDeer:0, totalGold:0 },
+                  stats: val.player.stats || { score:0, totalWood:0, totalDeer:0, totalGold:0, kills:0 },
                   achievements: val.player.achievements || [], mana: val.player.mana || 100,
                   quest: val.player.quest || generateDailyQuest(),
-                  heroLevel: val.player.heroLevel || 1
+                  heroLevel: val.player.heroLevel || 1,
+                  storageCap: val.player.storageCap || CONFIG.BASE_STORAGE
               };
               gs.current.entities = val.entities || [];
+              if(val.fog) gs.current.fog = val.fog;
               updateUi();
           } else { initWorld(uid); }
       });
@@ -208,6 +205,9 @@ export default function GamePage() {
       const cx = Math.floor(CONFIG.MAP_SIZE/2);
       gs.current.entities = [{ id: 'castle', type: 'castle', pos: {x:cx, y:cx}, pixelPos: {x:0,y:0}, hp:5000, maxHp:5000, owner:uid }];
       gs.current.player.quest = generateDailyQuest();
+      for(let x=cx-5; x<=cx+5; x++) for(let y=cx-5; y<=cx+5; y++) {
+          if(x>=0 && x<CONFIG.MAP_SIZE && y>=0 && y<CONFIG.MAP_SIZE) gs.current.fog[x][y] = true;
+      }
       for(let i=0; i<30; i++) spawnRandomResource(true);
       saveGame(); setShowTutorial(true);
   };
@@ -224,13 +224,13 @@ export default function GamePage() {
               let foundUid: string | null = null; let foundData: any = null;
               snapshot.forEach((child) => { foundUid = child.key; foundData = child.val(); });
               if (foundData && foundData.player.pin === pinInput) {
-                  localStorage.setItem("orman_v23_uid", foundUid!);
+                  localStorage.setItem("orman_v25_uid", foundUid!);
                   gs.current.userId = foundUid; setLoginModal(false); connectToDb(foundUid!);
               } else { setLoginError("❌ Hatalı Şifre!"); }
           } else {
               const newUid = "u_" + Date.now() + Math.random().toString(36).substr(2,5);
               gs.current.player.username = cleanName; gs.current.player.pin = pinInput; gs.current.userId = newUid;
-              localStorage.setItem("orman_v23_uid", newUid); setLoginModal(false); initWorld(newUid);
+              localStorage.setItem("orman_v25_uid", newUid); setLoginModal(false); initWorld(newUid);
           }
       } catch (error) { setLoginError("Bağlantı hatası."); }
   };
@@ -253,19 +253,25 @@ export default function GamePage() {
       }
   };
 
+  // --- BUG FİXLENMİŞ PAZAR MANTIĞI ---
   const executeTrade = (tradeId: number) => {
       const trade = CONFIG.TRADES.find(t => t.id === tradeId);
       if(!trade) return;
       const p = gs.current.player;
-      const resGive = trade.give.type as keyof typeof p.resources;
-      const resGet = trade.get.type as keyof typeof p.resources;
+      
+      const giveType = trade.giveType as keyof typeof p.resources;
+      const getType = trade.getType as keyof typeof p.resources;
 
-      if(p.resources[resGive] >= trade.give.amount) {
-          p.resources[resGive] -= trade.give.amount;
-          p.resources[resGet] += trade.get.amount;
+      // Kaynak kontrolü (KESİN)
+      if(p.resources[giveType] >= trade.giveAmount) {
+          p.resources[giveType] -= trade.giveAmount;
+          p.resources[getType] += trade.getAmount;
           spawnFloatingText(0,0, "Takas Başarılı!", "#facc15");
           updateUi(); saveGame();
-      } else { setInfoText(`Yetersiz ${trade.give.type}!`); }
+      } else { 
+          spawnFloatingText(0,0, "Yetersiz Kaynak!", "red");
+          setInfoText(`Yetersiz ${giveType}! (${trade.giveAmount} gerekli)`); 
+      }
   };
 
   const handleZoom = (d: number) => {
@@ -300,7 +306,12 @@ export default function GamePage() {
   };
 
   const updateUi = () => {
-      setUi(prev => ({ ...prev, res: {...gs.current.player.resources}, pop: gs.current.entities.filter(e => (e.type === 'worker' || e.type === 'king') && e.owner === gs.current.userId).length, maxPop: gs.current.player.maxPop, mana: gs.current.player.mana, quest: gs.current.player.quest, heroLvl: gs.current.player.heroLevel || 1 }));
+      setUi(prev => ({ 
+          ...prev, res: {...gs.current.player.resources}, 
+          pop: gs.current.entities.filter(e => (e.type === 'worker' || e.type === 'soldier' || e.type === 'king') && e.owner === gs.current.userId).length, 
+          maxPop: gs.current.player.maxPop, mana: gs.current.player.mana, quest: gs.current.player.quest, heroLvl: gs.current.player.heroLevel || 1,
+          cap: gs.current.player.storageCap
+      }));
       setUpgradesUI({...gs.current.player.upgrades});
   };
 
@@ -315,6 +326,7 @@ export default function GamePage() {
               let val = 0;
               if(ac.type === 'wood') val = p.stats.totalWood; if(ac.type === 'deer') val = p.stats.totalDeer;
               if(ac.type === 'gold') val = p.stats.totalGold; if(ac.type === 'score') val = p.stats.score;
+              if(ac.type === 'kill') val = p.stats.kills || 0;
               if(val >= ac.target) { p.achievements.push(ac.id); spawnFloatingText(0, 0, `BAŞARIM: ${ac.name}`, "#f59e0b"); }
           }
       });
@@ -339,47 +351,114 @@ export default function GamePage() {
           if (e.owner === gs.current.userId) {
               if (e.type === 'castle') score += 100; if (e.type === 'house') score += 50; if (e.type === 'tower') score += 200;
               if (e.type === 'worker') score += 10 + ((e.level||1) * 10); if (e.type === 'king') score += 500;
+              if (e.type === 'soldier') score += 50;
           }
       });
       score += (p.upgrades.tool + p.upgrades.nature + p.upgrades.speed + p.upgrades.cap) * 150; score += (p.achievements.length * 1000);
-      score += (p.heroLevel || 1) * 200; // Kahraman seviye puanı
+      score += (p.heroLevel || 1) * 200;
       gs.current.player.stats.score = Math.floor(score); checkAchievements();
       const updates: any = {};
-      updates[`empires_final/${gs.current.userId}`] = { player: gs.current.player, entities: gs.current.entities };
+      updates[`empires_final/${gs.current.userId}`] = { 
+          player: gs.current.player, entities: gs.current.entities, fog: gs.current.fog
+      };
       updates[`leaderboard/${gs.current.userId}`] = { username: gs.current.player.username, score: Math.floor(score) };
       update(ref(db), updates);
   };
 
+  // --- İŞÇİ AI DÜZELTMESİ (Gelişmiş Hedefleme) ---
   const updateLogic = () => {
-      const now = Date.now(); gs.current.player.mana = Math.min(gs.current.player.maxMana, gs.current.player.mana + (CONFIG.MANA_REGEN_RATE / 60));
+      const now = Date.now(); 
+      gs.current.player.mana = Math.min(gs.current.player.maxMana, gs.current.player.mana + (CONFIG.MANA_REGEN_RATE / 60));
+      const cycle = (now % CONFIG.DAY_CYCLE_DURATION) / CONFIG.DAY_CYCLE_DURATION;
+      const isNight = cycle > 0.5; gs.current.nightMode = isNight; gs.current.timeOfDay = isNight ? 0.6 : 0;
+
+      if(isNight && Math.random() < 0.005) {
+          const angle = Math.random() * Math.PI * 2;
+          const spawnX = Math.floor(CONFIG.MAP_SIZE/2 + Math.cos(angle) * 25);
+          const spawnY = Math.floor(CONFIG.MAP_SIZE/2 + Math.sin(angle) * 25);
+          if(spawnX>0 && spawnX<CONFIG.MAP_SIZE && spawnY>0 && spawnY<CONFIG.MAP_SIZE) {
+              gs.current.entities.push({ id: `enemy_${now}`, type: 'barbarian', pos: {x:spawnX, y:spawnY}, pixelPos:null, hp:100, maxHp:100, state:'MOVE', owner:'enemy' });
+              spawnFloatingText(0,0,"BARBARLAR GELİYOR!", "#ef4444");
+          }
+      }
+
       if(now - gs.current.lastIncomeTime > 10000) {
           const towers = gs.current.entities.filter(e => e.type === 'tower' && e.owner === gs.current.userId).length;
-          if(towers > 0) { gs.current.player.resources.gold += towers * 10; spawnFloatingText(0, 0, `+${towers * 10} Vergi`, '#facc15'); updateUi(); }
+          const farms = gs.current.entities.filter(e => e.type === 'farm' && e.owner === gs.current.userId).length;
+          if(towers > 0) { gs.current.player.resources.gold += towers * 10; spawnFloatingText(0, 0, `+${towers * 10} Vergi`, '#facc15'); }
+          if(farms > 0) { gs.current.player.resources.food += farms * 5; spawnFloatingText(0, 0, `+${farms * 5} Hasat`, '#fb923c'); }
+          if(towers>0 || farms>0) updateUi();
           gs.current.lastIncomeTime = now;
       }
+
       gs.current.camera.x += (gs.current.camera.targetX - gs.current.camera.x) * 0.1; gs.current.camera.y += (gs.current.camera.targetY - gs.current.camera.y) * 0.1;
       if(now >= gs.current.nextSpawnTime) { spawnRandomResource(); const natureLvl = gs.current.player.upgrades.nature || 0; gs.current.nextSpawnTime = now + (CONFIG.BASE_SPAWN_TIME * Math.pow(0.9, natureLvl)); }
       gs.current.particles.forEach(p => { p.y -= p.velocityY; p.life--; }); gs.current.particles = gs.current.particles.filter(p => p.life > 0);
       const king = gs.current.entities.find(e => e.type === 'king' && e.owner === gs.current.userId);
+
+      // SAHİPLENİLMİŞ HEDEFLER LİSTESİ (ÇAKIŞMAYI ÖNLER)
+      const claimedTargets = new Set();
+      gs.current.entities.forEach(e => { if(e.owner === gs.current.userId && e.targetId) claimedTargets.add(e.targetId); });
+
       gs.current.entities.forEach(ent => {
           const tx = (ent.pos.x - ent.pos.y) * (CONFIG.TILE_WIDTH / 2); const ty = (ent.pos.x + ent.pos.y) * (CONFIG.TILE_HEIGHT / 2);
           if(!ent.pixelPos) ent.pixelPos = {x: tx, y: ty};
           ent.pixelPos.x += (tx - ent.pixelPos.x) * 0.1; ent.pixelPos.y += (ty - ent.pixelPos.y) * 0.1;
+
+          if(ent.owner === gs.current.userId && ent.type !== 'tree' && ent.type !== 'stone') {
+              const range = 4;
+              for(let fx = Math.floor(ent.pos.x - range); fx <= Math.floor(ent.pos.x + range); fx++) {
+                  for(let fy = Math.floor(ent.pos.y - range); fy <= Math.floor(ent.pos.y + range); fy++) {
+                      if(fx>=0 && fx<CONFIG.MAP_SIZE && fy>=0 && fy<CONFIG.MAP_SIZE) gs.current.fog[fx][fy] = true;
+                  }
+              }
+          }
+
+          if(ent.type === 'barbarian') {
+              let target = null, minD = 999;
+              gs.current.entities.forEach(t => {
+                  if(t.owner === gs.current.userId && t.type !== 'barbarian') {
+                      const d = Math.hypot(t.pos.x - ent.pos.x, t.pos.y - ent.pos.y);
+                      if(d < minD) { minD = d; target = t; }
+                  }
+              });
+              if(target && minD < 1) { 
+                  if(Math.random() < 0.05) { target.hp -= 10; spawnFloatingText(target.pixelPos.x, target.pixelPos.y, "-10 HP", "red"); if(target.hp <= 0) { gs.current.entities = gs.current.entities.filter(e => e.id !== target.id); spawnFloatingText(target.pixelPos.x, target.pixelPos.y, "YIKILDI!", "red"); } }
+              } else if(target) { const dx = target.pos.x - ent.pos.x; const dy = target.pos.y - ent.pos.y; ent.pos.x += (dx/minD)*0.03; ent.pos.y += (dy/minD)*0.03; }
+          }
+
+          if(ent.type === 'soldier') {
+              let target = gs.current.entities.find(e => e.type === 'barbarian');
+              if(target) {
+                  const d = Math.hypot(target.pos.x - ent.pos.x, target.pos.y - ent.pos.y);
+                  if(d < 1) { if(Math.random() < 0.1) { target.hp -= 20; spawnFloatingText(target.pixelPos.x, target.pixelPos.y, "⚔️", "white"); if(target.hp <= 0) { gs.current.entities = gs.current.entities.filter(e => e.id !== target.id); gs.current.player.stats.kills = (gs.current.player.stats.kills || 0) + 1; spawnFloatingText(ent.pixelPos.x, ent.pixelPos.y, "ZAFER!", "#facc15"); checkAchievements(); } } } 
+                  else { const dx = target.pos.x - ent.pos.x; const dy = target.pos.y - ent.pos.y; ent.pos.x += (dx/d)*0.06; ent.pos.y += (dy/d)*0.06; }
+              }
+          }
+
           if(ent.owner === gs.current.userId) {
               if(ent.type === 'worker' || ent.type === 'king') {
                   if(!ent.level) ent.level = 1;
-                  let isBuffed = gs.current.spellActive; 
-                  if(king && ent.type === 'worker') { 
-                      const range = 5 + (gs.current.player.heroLevel || 1); // SEVİYE ARTTIKÇA MENZİL ARTAR
-                      const distToKing = Math.hypot(ent.pos.x - king.pos.x, ent.pos.y - king.pos.y); 
-                      if(distToKing < range) isBuffed = true; 
-                  } 
-                  ent.isBuffed = isBuffed;
+                  let isBuffed = gs.current.spellActive; if(king && ent.type === 'worker') { const distToKing = Math.hypot(ent.pos.x - king.pos.x, ent.pos.y - king.pos.y); if(distToKing < 5) isBuffed = true; } ent.isBuffed = isBuffed;
+                  
                   if(ent.state === 'IDLE' && !ent.targetId) {
                       if(ent.type === 'king') return; 
+                      
                       let closest=null, min=999;
-                      gs.current.entities.forEach(e => { if((e.type==='tree'||e.type==='stone'||e.type==='gold'||e.type==='deer'||e.type==='chest') && e.hp>0) { const d = Math.hypot(e.pos.x-ent.pos.x, e.pos.y-ent.pos.y); if(d<min) { min=d; closest=e; } } });
-                      if(closest && min<30) { ent.targetId = (closest as any).id; ent.state = 'MOVE'; }
+                      gs.current.entities.forEach(e => {
+                          // HEDEF KONTROLÜ: Başkası almış mı?
+                          if(!claimedTargets.has(e.id)) {
+                              if((e.type==='tree'||e.type==='stone'||e.type==='gold'||e.type==='deer'||e.type==='chest') && e.hp>0) {
+                                  const d = Math.hypot(e.pos.x-ent.pos.x, e.pos.y-ent.pos.y);
+                                  if(d<min) { min=d; closest=e; }
+                              }
+                          }
+                      });
+                      if(closest && min<30) { 
+                          ent.targetId = (closest as any).id; 
+                          ent.state = 'MOVE'; 
+                          claimedTargets.add(ent.targetId); // Hedefi kilitle
+                      }
                   }
                   else if(ent.state === 'MOVE' && (ent.targetId || ent.targetPos)) {
                       let tx, ty, dist;
@@ -394,12 +473,15 @@ export default function GamePage() {
                           const toolLvl = gs.current.player.upgrades.tool || 0; let difficulty = t.type === 'gold' ? 2000 : 0; if(t.type === 'chest') difficulty = -2000; 
                           let requiredTime = Math.max(CONFIG.MIN_WORK_TIME, CONFIG.BASE_WORK_TIME + difficulty - (toolLvl * 800)); if(ent.isBuffed) requiredTime /= (1.5 + ((gs.current.player.heroLevel||1)*0.1)); 
                           if(Date.now() - ent.workStartTime >= requiredTime) {
-                              let val = 20 + (ent.level * 2); let color = 'white';
-                              if(t.type==='tree') { gs.current.player.resources.wood += val; color='#a3e635'; gs.current.player.stats.totalWood += val; updateQuest('wood', val); spawnFloatingText(ent.pixelPos.x, ent.pixelPos.y - 50, `+${val} Odun`, color); }
-                              if(t.type==='stone') { gs.current.player.resources.stone += val; color='#94a3b8'; updateQuest('stone', val); spawnFloatingText(ent.pixelPos.x, ent.pixelPos.y - 50, `+${val} Taş`, color); }
-                              if(t.type==='gold') { gs.current.player.resources.gold += val; color='#facc15'; gs.current.player.stats.totalGold += val; spawnFloatingText(ent.pixelPos.x, ent.pixelPos.y - 50, `+${val} Altın`, color); }
-                              if(t.type==='deer') { let meat = val + 10; gs.current.player.resources.food += meat; color='#fb923c'; gs.current.player.stats.totalDeer += 1; updateQuest('deer', 1); spawnFloatingText(ent.pixelPos.x, ent.pixelPos.y - 50, `+${meat} Et`, color); }
+                              let val = 20 + (ent.level * 2); 
+                              const currentRes = gs.current.player.resources; const cap = gs.current.player.storageCap || CONFIG.BASE_STORAGE;
+                              
+                              if(t.type==='tree') { if(currentRes.wood < cap) { currentRes.wood += val; gs.current.player.stats.totalWood += val; updateQuest('wood', val); spawnFloatingText(ent.pixelPos.x, ent.pixelPos.y - 50, `+${val} Odun`, '#a3e635'); } else spawnFloatingText(ent.pixelPos.x, ent.pixelPos.y - 50, "DEPO DOLU!", "red"); }
+                              if(t.type==='stone') { if(currentRes.stone < cap) { currentRes.stone += val; updateQuest('stone', val); spawnFloatingText(ent.pixelPos.x, ent.pixelPos.y - 50, `+${val} Taş`, '#94a3b8'); } }
+                              if(t.type==='gold') { currentRes.gold += val; gs.current.player.stats.totalGold += val; spawnFloatingText(ent.pixelPos.x, ent.pixelPos.y - 50, `+${val} Altın`, '#facc15'); }
+                              if(t.type==='deer') { let meat = val + 10; if(currentRes.food < cap) { currentRes.food += meat; gs.current.player.stats.totalDeer += 1; updateQuest('deer', 1); spawnFloatingText(ent.pixelPos.x, ent.pixelPos.y - 50, `+${meat} Et`, '#fb923c'); } }
                               if(t.type==='chest') { let reward = Math.random() > 0.5 ? 500 : 2000; if(reward===500) { gs.current.player.resources.gold += 500; spawnFloatingText(ent.pixelPos.x, ent.pixelPos.y - 60, `+500 ALTIN!`, '#facc15'); } else { gs.current.player.stats.score += 2000; spawnFloatingText(ent.pixelPos.x, ent.pixelPos.y - 60, `+2000 PUAN!`, '#c084fc'); } }
+                              
                               ent.xp = (ent.xp||0) + 10; if(ent.xp > ent.level*100) { ent.level++; spawnFloatingText(ent.pixelPos.x, ent.pixelPos.y - 80, "LEVEL UP!", "#ef4444"); }
                               gs.current.entities = gs.current.entities.filter(e => e.id !== t.id); ent.state='IDLE'; ent.targetId=null; updateUi(); saveGame();
                           }
@@ -442,47 +524,51 @@ export default function GamePage() {
       const iy = Math.round((adjY/(CONFIG.TILE_HEIGHT*gs.current.camera.zoom/2) - adjX/(CONFIG.TILE_WIDTH*gs.current.camera.zoom/2)) / 2);
       const ix = Math.round((adjY/(CONFIG.TILE_HEIGHT*gs.current.camera.zoom/2) + adjX/(CONFIG.TILE_WIDTH*gs.current.camera.zoom/2)) / 2);
       const building = CONFIG.BUILDINGS[buildMode as keyof typeof CONFIG.BUILDINGS];
-      if(gs.current.player.resources.wood >= building.cost) {
-          gs.current.player.resources.wood -= building.cost;
+      
+      const resType = building.res as keyof typeof gs.current.player.resources;
+      if(gs.current.player.resources[resType] >= building.cost) {
+          gs.current.player.resources[resType] -= building.cost;
           gs.current.entities.push({ id: `b_${Date.now()}`, type: buildMode, pos: {x:ix, y:iy}, pixelPos:null, hp:500, maxHp:500, owner:gs.current.userId });
           if(buildMode === 'house') gs.current.player.maxPop += 5; 
+          if(buildMode === 'storage') gs.current.player.storageCap += 1000; 
           setBuildMode(null); setActiveMenu('none'); updateUi(); saveGame(); setInfoText("İnşaat Tamamlandı!");
-          spawnFloatingText(ix*CONFIG.TILE_WIDTH/2 - iy*CONFIG.TILE_WIDTH/2, (ix+iy)*CONFIG.TILE_HEIGHT/2, `-${building.cost} Odun`, 'red');
-      } else { setInfoText(`Yetersiz Kaynak (${building.cost} Odun)`); }
+          spawnFloatingText(ix*CONFIG.TILE_WIDTH/2 - iy*CONFIG.TILE_WIDTH/2, (ix+iy)*CONFIG.TILE_HEIGHT/2, `-${building.cost} ${building.res}`, 'red');
+      } else { setInfoText(`Yetersiz Kaynak (${building.cost} ${building.res})`); }
   };
 
-  const spawnUnit = (type: 'worker' | 'king' | 'upgrade_king') => {
-      if(type==='worker' && ui.pop >= ui.maxPop) { setInfoText("Nüfus Dolu! Ev Yap."); return; }
+  const spawnUnit = (type: 'worker' | 'king' | 'upgrade_king' | 'soldier') => {
+      if((type==='worker' || type==='soldier') && ui.pop >= ui.maxPop) { setInfoText("Nüfus Dolu! Ev Yap."); return; }
       
-      // KAHRAMAN YÜKSELTME MANTIĞI
       if(type === 'upgrade_king') {
           const currentLevel = gs.current.player.heroLevel || 1;
-          const upgradeCost = currentLevel * 500; // Her seviye için 500 Altın artar
+          const upgradeCost = currentLevel * 500; 
           if(gs.current.player.resources.gold >= upgradeCost) {
-              gs.current.player.resources.gold -= upgradeCost;
-              gs.current.player.heroLevel = currentLevel + 1;
-              setInfoText(`Kral Seviye ${currentLevel + 1} Oldu!`);
-              spawnFloatingText(0,0, "LEVEL UP!", "#facc15");
+              gs.current.player.resources.gold -= upgradeCost; gs.current.player.heroLevel = currentLevel + 1;
+              setInfoText(`Kral Seviye ${currentLevel + 1} Oldu!`); spawnFloatingText(0,0, "LEVEL UP!", "#facc15");
               updateUi(); saveGame();
-          } else {
-              setInfoText(`Yetersiz Altın (${upgradeCost} Gerekli)`);
-          }
+          } else { setInfoText(`Yetersiz Altın (${upgradeCost} Gerekli)`); }
           return;
       }
 
-      const costFood = type==='worker' ? 60 : 0; const costGold = type==='king' ? 500 : 0;
+      const costFood = type==='worker' ? 60 : 0; const costGold = (type==='king' ? 500 : (type==='soldier' ? 50 : 0));
+      const costStone = type==='soldier' ? 20 : 0;
+
       if(type==='king' && gs.current.entities.find(e => e.type==='king' && e.owner === gs.current.userId)) { setInfoText("Kralın Zaten Var!"); return; }
-      if(gs.current.player.resources.food >= costFood && gs.current.player.resources.gold >= costGold) {
-          gs.current.player.resources.food -= costFood; gs.current.player.resources.gold -= costGold;
+      
+      if(gs.current.player.resources.food >= costFood && gs.current.player.resources.gold >= costGold && gs.current.player.resources.stone >= costStone) {
+          gs.current.player.resources.food -= costFood; gs.current.player.resources.gold -= costGold; gs.current.player.resources.stone -= costStone;
           const cx = Math.floor(CONFIG.MAP_SIZE/2);
           gs.current.entities.push({ id: `u_${Date.now()}`, type, pos: {x:cx, y:cx}, pixelPos:null, hp:100, maxHp:100, state:'IDLE', owner:gs.current.userId });
           updateUi(); saveGame(); 
-          if(type==='worker') spawnFloatingText(0, (CONFIG.MAP_SIZE*CONFIG.TILE_HEIGHT)/2, "-60 Et", 'red');
-          if(type==='king') {
-              gs.current.player.heroLevel = 1; // İlk seviye
-              spawnFloatingText(0, (CONFIG.MAP_SIZE*CONFIG.TILE_HEIGHT)/2, "KRAL GELDİ!", '#facc15');
-          }
-      } else { setInfoText(`Yetersiz Kaynak (${type==='worker'?'60 Et':'500 Altın'})`); }
+          if(type==='worker') spawnFloatingText(0, 0, "-60 Et", 'red');
+          if(type==='soldier') spawnFloatingText(0, 0, "ASKER HAZIR!", 'gray');
+          if(type==='king') { gs.current.player.heroLevel = 1; spawnFloatingText(0, 0, "KRAL GELDİ!", '#facc15'); }
+      } else { setInfoText(`Yetersiz Kaynak`); }
+  };
+
+  const handleZoom = (d: number) => {
+      let z = gs.current.camera.zoom + d;
+      gs.current.camera.zoom = Math.max(CONFIG.ZOOM_MIN, Math.min(CONFIG.ZOOM_MAX, z));
   };
 
   const render = () => {
@@ -491,9 +577,23 @@ export default function GamePage() {
     ctx.fillStyle = '#111827'; ctx.fillRect(0,0,cvs.width,cvs.height);
     const cam = gs.current.camera; const zoom = cam.zoom;
     const toScreen = (gx: number, gy: number) => ({ x: (gx - gy) * (CONFIG.TILE_WIDTH/2) * zoom + cvs.width/2 - cam.x, y: (gx + gy) * (CONFIG.TILE_HEIGHT/2) * zoom + cvs.height/2 - cam.y });
-    for(let x=0; x<CONFIG.MAP_SIZE; x++) { for(let y=0; y<CONFIG.MAP_SIZE; y++) { const pos = toScreen(x,y); if(pos.x<-200||pos.x>cvs.width+200||pos.y<-200||pos.y>cvs.height+200) continue; const type = gs.current.map[x][y]; const img = type===1 ? AssetManager.images.water : AssetManager.images.grass; if(img && img.complete) { const w = CONFIG.TILE_WIDTH * zoom * CONFIG.OVERLAP_STRENGTH; const h = (img.height/img.width) * w; ctx.drawImage(img, pos.x - w/2, pos.y, w, h); } } }
+    
+    // ZEMİN VE FOG RENDER
+    for(let x=0; x<CONFIG.MAP_SIZE; x++) { for(let y=0; y<CONFIG.MAP_SIZE; y++) { 
+        const pos = toScreen(x,y); if(pos.x<-200||pos.x>cvs.width+200||pos.y<-200||pos.y>cvs.height+200) continue; 
+        if(!gs.current.fog[x][y]) {
+            ctx.fillStyle = '#000'; 
+            ctx.beginPath(); ctx.moveTo(pos.x, pos.y); ctx.lineTo(pos.x+CONFIG.TILE_WIDTH*zoom/2, pos.y+CONFIG.TILE_HEIGHT*zoom/2);
+            ctx.lineTo(pos.x, pos.y+CONFIG.TILE_HEIGHT*zoom); ctx.lineTo(pos.x-CONFIG.TILE_WIDTH*zoom/2, pos.y+CONFIG.TILE_HEIGHT*zoom/2);
+            ctx.fill(); continue; 
+        }
+        const type = gs.current.map[x][y]; const img = type===1 ? AssetManager.images.water : AssetManager.images.grass; 
+        if(img && img.complete) { const w = CONFIG.TILE_WIDTH * zoom * CONFIG.OVERLAP_STRENGTH; const h = (img.height/img.width) * w; ctx.drawImage(img, pos.x - w/2, pos.y, w, h); } 
+    } }
+
     gs.current.entities.sort((a,b)=>(a.pos.x+a.pos.y)-(b.pos.x+b.pos.y));
     gs.current.entities.forEach(ent => {
+        if(!gs.current.fog[Math.floor(ent.pos.x)][Math.floor(ent.pos.y)]) return;
         const pos = toScreen(ent.pos.x, ent.pos.y); const img = AssetManager.images[ent.type];
         if(img && img.complete) {
             const scale = CONFIG.SCALE_FACTORS[ent.type] || 1.0; const w = CONFIG.TILE_WIDTH * zoom * scale; const h = (img.height/img.width) * w; const drawY = pos.y - h + (CONFIG.TILE_HEIGHT * zoom * 0.9);
@@ -506,15 +606,16 @@ export default function GamePage() {
             }
         }
     });
+    
+    if(gs.current.nightMode) { ctx.fillStyle = 'rgba(0, 0, 60, 0.4)'; ctx.fillRect(0,0,cvs.width, cvs.height); }
     gs.current.particles.forEach(p => { const screenX = (p.x * zoom) + cvs.width/2 - cam.x; const screenY = (p.y * zoom) + cvs.height/2 - cam.y; ctx.globalAlpha = p.life / p.maxLife; ctx.fillStyle = p.color; ctx.font = `bold ${16 * zoom}px Arial`; ctx.strokeText(p.text, screenX, screenY); ctx.fillText(p.text, screenX, screenY); ctx.globalAlpha = 1.0; });
   };
 
   return (
     <div className="fixed inset-0 bg-gray-900 text-white select-none overflow-hidden touch-none font-sans touch-none">
       {loginModal && ( <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur"> <div className="bg-slate-800 p-8 rounded-2xl w-80 text-center border border-white/10 shadow-2xl"> <h2 className="text-3xl font-bold mb-4 text-emerald-400 font-serif tracking-widest">TREE KINGDOM</h2> <input type="text" placeholder="İmparator Adı" className="w-full bg-slate-900 p-3 rounded mb-2 border border-gray-600 outline-none text-white text-center" value={usernameInput} onChange={e=>setUsernameInput(e.target.value)} maxLength={12} /> <input type="password" placeholder="PIN" className="w-full bg-slate-900 p-3 rounded mb-4 border border-gray-600 outline-none text-white tracking-widest text-center" value={pinInput} onChange={e=>setPinInput(e.target.value)} maxLength={4} inputMode="numeric" /> {loginError && <div className="text-red-400 text-xs mb-3">{loginError}</div>} <button onClick={handleLogin} className="w-full bg-emerald-600 py-3 rounded font-bold hover:bg-emerald-500 shadow-lg">BAŞLA ⚔️</button> </div> </div> )}
-      {showTutorial && ( <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"> <div className="bg-slate-900 rounded-2xl border border-emerald-500/30 w-full max-w-md p-6 shadow-2xl animate-in fade-in zoom-in"> <h2 className="text-2xl font-bold text-emerald-400 mb-4 text-center">HOŞGELDİN İMPARATOR! 👑</h2> <div className="space-y-3 text-sm text-gray-300"> <p>🌲 <strong>Amaç:</strong> Kaynak topla, İmparatorluğunu kur.</p> <p>🏠 <strong>Evler:</strong> İnşa ettiğin her ev sana +5 Nüfus Limiti verir.</p> <p>🗼 <strong>Kuleler:</strong> Pasif olarak sana Altın kazandırır.</p> <p>🤴 <strong>Kral:</strong> İşçilerine liderlik eder. Seviye atlatarak güçlendir.</p> </div> <button onClick={()=>setShowTutorial(false)} className="w-full mt-6 bg-emerald-600 py-3 rounded-lg font-bold">ANLADIM</button> </div> </div> )}
+      {showTutorial && ( <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"> <div className="bg-slate-900 rounded-2xl border border-emerald-500/30 w-full max-w-md p-6 shadow-2xl animate-in fade-in zoom-in"> <h2 className="text-2xl font-bold text-emerald-400 mb-4 text-center">HOŞGELDİN İMPARATOR! 👑</h2> <div className="space-y-3 text-sm text-gray-300"> <p>🌲 <strong>Amaç:</strong> Kaynak topla, İmparatorluğunu kur.</p> <p>🏠 <strong>Depo:</strong> Kaynak limitini artırmak için DEPO kur.</p> <p>⚔️ <strong>Savaş:</strong> Gece barbarlar gelir! Kışla kur ve ASKER üret.</p> <p>🌫️ <strong>Keşif:</strong> Harita karanlıktır, işçilerinle keşfet.</p> </div> <button onClick={()=>setShowTutorial(false)} className="w-full mt-6 bg-emerald-600 py-3 rounded-lg font-bold">ANLADIM</button> </div> </div> )}
       
-      {/* MENÜLER */}
       {activeMenu === 'magic' && (
           <div className="absolute bottom-20 left-1/2 -translate-x-1/2 bg-black/90 p-4 rounded-xl border border-blue-500/50 w-72 backdrop-blur z-30 animate-in slide-in-from-bottom-5">
               <div className="flex justify-between mb-2 border-b border-white/10 pb-1"><h3 className="font-bold text-blue-400">BÜYÜ KİTABI</h3><button onClick={()=>setActiveMenu('none')} className="text-gray-400">✕</button></div>
@@ -528,7 +629,7 @@ export default function GamePage() {
               {Object.entries(CONFIG.BUILDINGS).map(([key, b]) => (
                   <button key={key} onClick={()=>{setBuildMode(key); setActiveMenu('none'); setInfoText("Yeri seç ve inşa et.");}} className="w-full bg-slate-800 p-2 rounded mb-2 flex justify-between items-center hover:bg-orange-900/30">
                       <div><div className="font-bold text-sm">{b.name}</div><div className="text-[10px] text-gray-400">{b.desc}</div></div>
-                      <span className="text-yellow-500 font-mono text-xs">{b.cost} Odun</span>
+                      <div className="flex flex-col items-end"><span className="text-yellow-500 font-mono text-xs">{b.cost} {b.res}</span></div>
                   </button>
               ))}
           </div>
@@ -539,6 +640,7 @@ export default function GamePage() {
               {CONFIG.TRADES.map(t => (
                   <button key={t.id} onClick={()=>executeTrade(t.id)} className="w-full bg-slate-800 p-2 rounded mb-2 flex flex-col items-start hover:bg-yellow-900/30">
                       <div className="font-bold text-sm text-gray-200">{t.desc}</div>
+                      <div className="text-[10px] text-gray-400">{t.sub}</div>
                   </button>
               ))}
           </div>
@@ -546,22 +648,21 @@ export default function GamePage() {
       {techModal && ( <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"> <div className="bg-slate-900 rounded-2xl border border-white/20 w-full max-w-lg p-6"> <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4"> <h2 className="text-2xl font-bold text-purple-400">🧪 Teknoloji</h2> <button onClick={()=>setTechModal(false)} className="text-red-400 font-bold">KAPAT</button> </div> <div className="grid grid-cols-2 gap-4"> {(['tool', 'nature', 'speed', 'cap'] as const).map(key => { const conf = CONFIG.UPGRADES[key]; const lvl = upgradesUI[key] || 0; const cost = Math.floor(conf.baseCost * Math.pow(conf.mult, lvl)); return ( <div key={key} className="bg-slate-800 p-4 rounded-xl border border-white/5"> <div className="text-2xl mb-1">{conf.icon}</div> <div className="font-bold text-gray-200">{conf.name} <span className="text-xs text-gray-500">Lvl {lvl}</span></div> <div className="text-xs text-green-400 mb-2">{conf.effectDesc(lvl)}</div> <button onClick={()=>buyUpgrade(key)} className="w-full bg-slate-700 py-2 rounded text-xs">{lvl>=10?"MAX":`${cost} Odun`}</button> </div> ) })} </div> </div> </div> )}
       {showAchievements && ( <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"> <div className="bg-slate-900 rounded-2xl border border-white/20 w-full max-w-lg p-6"> <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4"> <h2 className="text-2xl font-bold text-yellow-400">🎖️ Başarımlar</h2> <button onClick={()=>setShowAchievements(false)} className="text-red-400 font-bold">KAPAT</button> </div> <div className="grid grid-cols-1 gap-2 max-h-80 overflow-y-auto"> {ACHIEVEMENTS_LIST.map(ac => { const unlocked = gs.current.player.achievements.includes(ac.id); return ( <div key={ac.id} className={`p-3 rounded-lg border flex items-center gap-3 ${unlocked ? 'bg-yellow-900/20 border-yellow-500/50' : 'bg-slate-800 border-white/5 opacity-50'}`}> <span className="text-2xl">{ac.icon}</span> <div> <div className={`font-bold ${unlocked?'text-yellow-400':'text-gray-400'}`}>{ac.name}</div> <div className="text-xs text-gray-500">{ac.desc}</div> </div> {unlocked && <span className="ml-auto text-green-400 font-bold">✓</span>} </div> ) })} </div> </div> </div> )}
 
-      {/* ÜST BAR */}
       <div className="absolute top-4 left-0 right-0 z-20 flex justify-center px-4"> <div className="flex items-center gap-2"> <div className="flex gap-2 sm:gap-4 bg-black/70 backdrop-blur-md px-4 py-2 rounded-full border border-yellow-500/20 shadow-xl overflow-hidden"> <ResItem i="🌲" v={ui.res.wood} c="text-emerald-400" /> <div className="w-px bg-white/10"></div> <ResItem i="🪨" v={ui.res.stone} c="text-stone-300" /> <div className="w-px bg-white/10"></div> <ResItem i="💰" v={ui.res.gold} c="text-yellow-400" /> <div className="w-px bg-white/10"></div> <ResItem i="🍗" v={ui.res.food} c="text-orange-400" /> <div className="w-px bg-white/10"></div> <div className="flex flex-col items-center"> <span className="text-xs font-mono font-bold text-white">{ui.pop}/{ui.maxPop}</span> <span className="text-[8px] text-gray-400">NÜFUS</span> </div> </div> <button onClick={() => setShowLeaderboard(!showLeaderboard)} className="w-10 h-10 rounded-full bg-black/60 border border-white/10 text-yellow-500">🏆</button> <button onClick={() => setShowAchievements(!showAchievements)} className="w-10 h-10 rounded-full bg-black/60 border border-white/10 text-orange-500">🎖️</button> <button onClick={() => setShowTutorial(true)} className="w-10 h-10 rounded-full bg-black/60 border border-white/10 text-emerald-400 font-bold text-xl">?</button> </div> </div>
       {showLeaderboard && ( <div className="absolute top-16 right-4 z-30 bg-black/90 backdrop-blur-md p-4 rounded-xl border border-yellow-500/30 w-56 shadow-2xl"> <div className="flex justify-between items-center border-b border-white/10 pb-2 mb-2"> <h3 className="text-yellow-400 font-bold text-xs">LİDER TABLOSU</h3> <button onClick={()=>setShowLeaderboard(false)} className="text-gray-500">✕</button> </div> <div className="max-h-60 overflow-y-auto"> {leaderboard.map((p,i) => ( <div key={i} className="flex justify-between text-[10px] mb-2"> <span>{i+1}. {p.username.split('#')[0]}</span> <span className="text-yellow-600 font-bold">{p.score}</span> </div> ))} </div> </div> )}
 
-      {/* ALT MENÜ (KOMPAKT) */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 pointer-events-auto z-20 w-full px-2">
           <div className="bg-black/80 px-4 py-1 rounded-lg border border-yellow-500/30 text-[10px] text-yellow-100 font-bold mb-1 shadow-lg text-center min-w-[150px]"> {infoText} </div>
-          <div className="flex gap-2 w-full max-w-md justify-center mb-1"> <div className="bg-black/60 px-2 py-1 rounded-full border border-blue-500/30 flex items-center gap-2"> <span className="text-[10px] text-blue-400 font-bold">MANA:</span> <div className="w-16 h-1.5 bg-gray-700 rounded-full overflow-hidden"><div className="h-full bg-blue-500" style={{width:`${ui.mana}%`}}></div></div> </div> {ui.quest.active && ( <div className="bg-black/60 px-2 py-1 rounded-full border border-green-500/30 text-[10px] text-green-300"> ⚔️ {ui.quest.desc} </div> )} </div>
+          <div className="flex gap-2 w-full max-w-md justify-center mb-1"> <div className="bg-black/60 px-2 py-1 rounded-full border border-blue-500/30 flex items-center gap-2"> <span className="text-[10px] text-blue-400 font-bold">MANA:</span> <div className="w-16 h-1.5 bg-gray-700 rounded-full overflow-hidden"><div className="h-full bg-blue-500" style={{width:`${ui.mana}%`}}></div></div> </div> {ui.quest.active && ( <div className="bg-black/60 px-2 py-1 rounded-full border border-green-500/30 text-[10px] text-green-300"> ⚔️ {ui.quest.desc} </div> )} <div className="bg-black/60 px-2 py-1 rounded-full border border-orange-500/30 text-[10px] text-orange-300"> 📦 {Math.floor(ui.cap)} </div> </div>
           
           <div className="bg-black/90 p-1.5 rounded-xl border border-yellow-500/20 flex gap-1.5 backdrop-blur-sm shadow-2xl overflow-x-auto">
             <Btn i="🪄" l="BÜYÜ" onClick={()=>setActiveMenu(activeMenu==='magic'?'none':'magic')} act={activeMenu==='magic'} />
             <Btn i="🔨" l="YAPI" onClick={()=>setActiveMenu(activeMenu==='build'?'none':'build')} act={activeMenu==='build'} />
             <Btn i="⚖️" l="PAZAR" onClick={()=>setActiveMenu(activeMenu==='market'?'none':'market')} act={activeMenu==='market'} />
             <div className="w-px bg-white/20 mx-0.5"></div>
-            <Btn i="👷" l="İŞÇİ" onClick={()=>{spawnUnit('worker'); setInfoText("Yeni İşçi! (-60 Et)");}} />
-            <Btn i={hasKing ? "👑" : "🤴"} l={hasKing ? `Lvl ${ui.heroLvl}` : "KRAL"} onClick={()=>{spawnUnit(hasKing ? 'upgrade_king' : 'king'); setInfoText(hasKing ? "Kralı Terfi Ettir" : "Kral Sahada!");}} act={hasKing} />
+            <Btn i="👷" l="İŞÇİ" sub="60 Et" onClick={()=>{spawnUnit('worker'); setInfoText("Yeni İşçi! (-60 Et)");}} />
+            <Btn i="⚔️" l="ASKER" sub="50 Altın" onClick={()=>{spawnUnit('soldier'); setInfoText("Asker! (-50 Altın -20 Taş)");}} />
+            <Btn i={hasKing ? "👑" : "🤴"} l={hasKing ? `Lvl ${ui.heroLvl}` : "KRAL"} sub={hasKing ? "Terfi Et" : "500 Altın"} onClick={()=>{spawnUnit(hasKing ? 'upgrade_king' : 'king'); setInfoText(hasKing ? "Kralı Terfi Ettir" : "Kral Sahada!");}} act={hasKing} />
             <div className="w-px bg-white/20 mx-0.5"></div>
             <Btn i="🧪" l="TEKNO" onClick={()=>{setTechModal(true); setInfoText("Geliştirmeler");}} />
           </div>
@@ -574,4 +675,10 @@ export default function GamePage() {
 }
 
 const ResItem = ({i,v,c}:any) => ( <div className="flex flex-col items-center min-w-[24px] sm:min-w-[36px]"> <span className="text-lg sm:text-xl drop-shadow-md">{i}</span> <span className={`font-mono font-bold text-[10px] sm:text-xs ${c}`}>{Math.floor(v)}</span> </div> );
-const Btn = ({i,l,onClick,act}:any) => ( <button onClick={onClick} className={`group flex flex-col items-center justify-center w-10 h-10 sm:w-14 sm:h-14 rounded-lg sm:rounded-xl border transition-all active:scale-95 duration-200 ${act?'bg-yellow-600 border-yellow-400 shadow-lg text-white':'bg-slate-800 border-white/10 text-gray-300 hover:bg-slate-700'}`}> <span className="text-lg sm:text-2xl mb-0.5">{i}</span> <span className="text-[8px] sm:text-[10px] font-bold">{l}</span> </button> );
+const Btn = ({i,l,sub,onClick,act}:any) => ( 
+    <button onClick={onClick} className={`group flex flex-col items-center justify-center w-10 h-12 sm:w-14 sm:h-16 rounded-lg sm:rounded-xl border transition-all active:scale-95 duration-200 ${act?'bg-yellow-600 border-yellow-400 shadow-lg text-white':'bg-slate-800 border-white/10 text-gray-300 hover:bg-slate-700'}`}> 
+        <span className="text-lg sm:text-2xl mb-0.5">{i}</span> 
+        <span className="text-[8px] sm:text-[10px] font-bold leading-tight">{l}</span> 
+        {sub && <span className="text-[6px] sm:text-[8px] text-yellow-500 font-mono leading-tight">{sub}</span>}
+    </button> 
+);
