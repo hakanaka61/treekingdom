@@ -5,7 +5,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getDatabase, ref, update, onValue, push, query, orderByChild, limitToLast, get, equalTo } from "firebase/database";
 
 // ==========================================
-// 1. AYARLAR & OYUN DENGESİ (V32.4 FINAL)
+// 1. AYARLAR & OYUN DENGESİ (V32.5 FIXED)
 // ==========================================
 const CONFIG = {
   TILE_WIDTH: 128, TILE_HEIGHT: 64,
@@ -118,7 +118,8 @@ export default function GamePage() {
     player: { 
         username: "", resources: { wood: 100, stone: 50, gold: 50, food: 100 }, 
         xp: 0, level: 1,
-        stats: { score: 0, kills: 0 }, 
+        // FIX: EKSİK OLAN STATLAR EKLENDİ (BU YÜZDEN HATA VERİYORDU)
+        stats: { score: 0, kills: 0, totalWood: 0, totalDeer: 0, totalGold: 0 }, 
         upgrades: { tool: 0, nature: 0, speed: 0, cap: 0, war: 0, wall: 0 },
         mana: 100, maxMana: 100, achievements: [] as string[],
         quest: { desc: "Görevi Al", target: 0, current: 0, type: 'wood', reward: 0, active: false },
@@ -158,7 +159,6 @@ export default function GamePage() {
 
   // --- 1. EN TEMEL YARDIMCI FONKSİYONLAR (EN ÜSTTE) ---
   
-  // ÖNCE BU TANIMLANMALI
   const generateDailyQuest = () => {
       const types = ['wood', 'stone', 'deer']; const type = types[Math.floor(Math.random()*types.length)];
       const target = type === 'wood' ? 500 : (type === 'stone' ? 100 : 20);
@@ -179,15 +179,18 @@ export default function GamePage() {
       ACHIEVEMENTS_LIST.forEach(ac => {
           if(!p.achievements.includes(ac.id)) {
               let val = 0;
-              if(ac.type === 'wood') val = p.stats.totalWood; if(ac.type === 'deer') val = p.stats.totalDeer;
-              if(ac.type === 'gold') val = p.stats.totalGold; if(ac.type === 'score') val = p.stats.score;
+              // FIX: Stats artık tanımlı, hata vermez
+              if(ac.type === 'wood') val = p.stats.totalWood; 
+              if(ac.type === 'deer') val = p.stats.totalDeer;
+              if(ac.type === 'gold') val = p.stats.totalGold; 
+              if(ac.type === 'score') val = p.stats.score;
               if(ac.type === 'kill') val = p.stats.kills || 0;
               if(val >= ac.target) { p.achievements.push(ac.id); spawnFloatingText(0, 0, `BAŞARIM: ${ac.name}`, "#f59e0b"); }
           }
       });
   };
 
-  // --- 2. BAĞIMLI FONKSİYONLAR (BUNLAR YUKARIDAKİLERİ KULLANIR) ---
+  // --- 2. BAĞIMLI FONKSİYONLAR ---
 
   const updateUi = () => {
       const p = gs.current.player;
@@ -249,7 +252,7 @@ export default function GamePage() {
       }
   };
 
-  // --- 3. AUTO-REPAIR VE INIT (BUNLAR generateDailyQuest ve diğerlerini kullanır) ---
+  // --- 3. AUTO-REPAIR VE INIT ---
 
   const validateAndFixData = (val: any) => {
       if(!val.fog || val.fog.length !== CONFIG.MAP_SIZE) {
@@ -282,12 +285,18 @@ export default function GamePage() {
           resources: p.resources || { wood: 100, stone: 50, gold: 50, food: 100 },
           xp: p.xp || 0,
           level: p.level || 1,
-          stats: p.stats || { score: 0, kills: 0 },
+          // FIX: Stats birleştirme (Eski veriyi koru, yoksa 0 yap)
+          stats: {
+              score: p.stats?.score || 0,
+              kills: p.stats?.kills || 0,
+              totalWood: p.stats?.totalWood || 0,
+              totalDeer: p.stats?.totalDeer || 0,
+              totalGold: p.stats?.totalGold || 0
+          },
           upgrades: p.upgrades || { tool: 0, nature: 0, speed: 0, cap: 0, war: 0, wall: 0 },
           mana: p.mana || 100,
           maxPop: p.maxPop || 5,
           storageCap: p.storageCap || CONFIG.BASE_STORAGE,
-          // ARTIK HATA VERMEZ ÇÜNKÜ generateDailyQuest YUKARIDA TANIMLI
           quest: p.quest || generateDailyQuest()
       };
 
@@ -477,22 +486,31 @@ export default function GamePage() {
       }
   };
 
-  const buyUpgrade = (type: 'tool' | 'nature' | 'speed' | 'cap' | 'war' | 'wall') => {
-      const conf = CONFIG.UPGRADES[type]; const lvl = gs.current.player.upgrades[type] || 0;
-      if(lvl >= 10) return;
-      const cost = Math.floor(conf.baseCost * Math.pow(conf.mult, lvl));
-      if(gs.current.player.resources.wood >= cost) {
-          gs.current.player.resources.wood -= cost; gs.current.player.upgrades[type]++;
-          if(type === 'cap') gs.current.player.maxPop += 2;
-          updateUi(); saveGame();
-      } else { setInfoText(`Yetersiz Odun (${cost})`); }
-  };
-
   const sendChat = () => {
       if(!chatInput.trim()) return;
       const msg = { user: gs.current.player.username, text: chatInput, time: Date.now() };
       push(ref(db, 'global_chat'), msg);
       setChatInput("");
+  };
+
+  const handleLoginBtn = async () => {
+      if(!usernameInput || pinInput.length !== 4) return;
+      const usersRef = ref(db, 'empires_final');
+      const q = query(usersRef, orderByChild('player/username'), equalTo(usernameInput));
+      const snap = await get(q);
+      
+      if(snap.exists()) {
+          let uid = Object.keys(snap.val())[0];
+          if(snap.val()[uid].player.pin === pinInput) {
+              localStorage.setItem("orman_v32_uid", uid);
+              gs.current.userId = uid; connectToDb(uid); setLoginModal(false);
+          } else { setLoginError("Yanlış PIN"); }
+      } else {
+          const newUid = "u_" + Date.now();
+          gs.current.player.username = usernameInput; gs.current.player.pin = pinInput; gs.current.userId = newUid;
+          localStorage.setItem("orman_v32_uid", newUid);
+          initNewPlayer(newUid); setLoginModal(false);
+      }
   };
 
   const checkDailyReward = () => {};
@@ -579,11 +597,13 @@ export default function GamePage() {
               if(ent.state === 'WORK' && ent.targetId) {
                   const t = gs.current.entities.find(e => e.id === ent.targetId);
                   if(t && now - ent.workStart > 3000) { 
-                      if(t.type === 'tree') gs.current.player.resources.wood += 20;
-                      if(t.type === 'stone') gs.current.player.resources.stone += 20;
-                      if(t.type === 'gold') gs.current.player.resources.gold += 20;
+                      if(t.type === 'tree') { gs.current.player.resources.wood += 20; gs.current.player.stats.totalWood += 20; }
+                      if(t.type === 'stone') { gs.current.player.resources.stone += 20; }
+                      if(t.type === 'gold') { gs.current.player.resources.gold += 20; gs.current.player.stats.totalGold += 20; }
+                      if(t.type === 'deer') gs.current.player.stats.totalDeer += 1;
+
                       addXp(10);
-                      updateQuest(t.type, 20); // QUEST GÜNCELLEME EKLENDI
+                      updateQuest(t.type, 20); 
                       t.dead = true; 
                       ent.state = 'IDLE';
                       saveGame();
