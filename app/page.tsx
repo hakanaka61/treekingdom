@@ -5,7 +5,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getDatabase, ref, update, onValue, push, query, orderByChild, limitToLast, get, equalTo } from "firebase/database";
 
 // ==========================================
-// 1. AYARLAR & OYUN DENGESİ (V32.1 STRICT FIX)
+// 1. AYARLAR & OYUN DENGESİ (V32.2 FINAL)
 // ==========================================
 const CONFIG = {
   TILE_WIDTH: 128, TILE_HEIGHT: 64,
@@ -13,7 +13,7 @@ const CONFIG = {
   ZOOM_MIN: 0.2, ZOOM_MAX: 1.5,
   
   BASE_SPAWN_TIME: 20000, 
-  DAY_CYCLE_DURATION: 300000, // 5 DAKİKA (4dk Gündüz, 1dk Gece)
+  DAY_CYCLE_DURATION: 300000, // 5 DAKİKA
   NIGHT_DURATION_RATIO: 0.2, 
   BASE_STORAGE: 1000,
 
@@ -114,18 +114,17 @@ export default function GamePage() {
   const [pinInput, setPinInput] = useState("");
   const [loginError, setLoginError] = useState("");
   const [infoText, setInfoText] = useState("İmparatorluğunu Kur!");
-  const [buildMode, setBuildMode] = useState<string | null>(null); // buildMode EKLENDİ
+  const [buildMode, setBuildMode] = useState<string | null>(null);
+  const [upgradesUI, setUpgradesUI] = useState(gs.current.player.upgrades);
 
   // --- INITIALIZATION ---
   useEffect(() => {
     AssetManager.loadAll(); 
-    generateMap(); // Haritayı oluştur (boş)
+    generateMap(); 
     
-    // Kayıtlı giriş kontrolü
     const savedUid = localStorage.getItem("orman_v32_uid");
     if (savedUid) { gs.current.userId = savedUid; connectToDb(savedUid); setLoginModal(false); }
 
-    // Chat Dinleyici
     const chatRef = query(ref(db, 'global_chat'), limitToLast(20));
     onValue(chatRef, (snap) => {
         const msgs: any[] = [];
@@ -133,15 +132,13 @@ export default function GamePage() {
         setChatMessages(msgs);
     });
 
-    // Oyun Döngüsü
     let anim: number;
     const loop = () => { updateLogic(); render(); anim = requestAnimationFrame(loop); };
     anim = requestAnimationFrame(loop);
     
-    // UI Güncelleme (1 saniyede bir)
     const uiTimer = setInterval(() => {
         updateUi();
-        checkDailyReward(); // Günlük ödül kontrolü
+        checkDailyReward();
     }, 1000);
 
     return () => { cancelAnimationFrame(anim); clearInterval(uiTimer); };
@@ -168,23 +165,20 @@ export default function GamePage() {
 
   // *** KRİTİK: ESKİ HESAP KURTARICI (VALIDATE & FIX) ***
   const validateAndFixData = (val: any) => {
-      // 1. Harita Boyutu Kontrolü (Fog)
       if(!val.fog || val.fog.length !== CONFIG.MAP_SIZE) {
-          console.log("Harita boyutu uyuşmazlığı, onarılıyor...");
-          // FIX: Tipler eklendi (HATA BURADAYDI)
+          // FIX: Tipler eklendi
           const newFog: boolean[][] = [];
           for(let x=0; x<CONFIG.MAP_SIZE; x++) {
               const row: boolean[] = [];
               for(let y=0; y<CONFIG.MAP_SIZE; y++) row.push(false);
               newFog.push(row);
           }
-          // Mevcut binaların etrafını aç
           if(val.entities) {
               val.entities.forEach((e:any) => {
                   if(e.owner === gs.current.userId) {
                       for(let fx = Math.floor(e.pos.x - 4); fx <= Math.floor(e.pos.x + 4); fx++) {
                           for(let fy = Math.floor(e.pos.y - 4); fy <= Math.floor(e.pos.y + 4); fy++) {
-                              if(fx>=0 && fx<CONFIG.MAP_SIZE && fy>=0 && fy<CONFIG.MAP_SIZE) newFog[fx][fy] = true;
+                              if(fx>=0 && fx<CONFIG.MAP_SIZE && fy>=0 && fy<CONFIG.MAP_SIZE && newFog[fx]) newFog[fx][fy] = true;
                           }
                       }
                   }
@@ -195,7 +189,6 @@ export default function GamePage() {
           gs.current.fog = val.fog;
       }
 
-      // 2. Eksik Kaynak/Stat Kontrolü
       const p = val.player || {};
       gs.current.player = {
           ...gs.current.player,
@@ -210,7 +203,6 @@ export default function GamePage() {
           quest: p.quest || generateDailyQuest()
       };
 
-      // 3. Varlıklar (Ölüleri temizle)
       gs.current.entities = (val.entities || []).filter((e:any) => !e.dead);
   };
 
@@ -218,7 +210,7 @@ export default function GamePage() {
       onValue(ref(db, `empires_final/${uid}`), (snap) => {
           const val = snap.val();
           if(val) {
-              validateAndFixData(val); // VERİYİ ONAR VE YÜKLE
+              validateAndFixData(val); 
               updateUi();
           } else { 
               initNewPlayer(uid); 
@@ -229,7 +221,6 @@ export default function GamePage() {
   const initNewPlayer = (uid: string) => {
       const cx = Math.floor(CONFIG.MAP_SIZE/2);
       gs.current.entities = [{ id: 'castle', type: 'castle', pos: {x:cx, y:cx}, pixelPos: {x:0,y:0}, hp:5000, maxHp:5000, owner:uid }];
-      // Başlangıç sisini aç
       for(let x=cx-5; x<=cx+5; x++) for(let y=cx-5; y<=cx+5; y++) { 
           if(x>=0 && x<CONFIG.MAP_SIZE && y>=0 && y<CONFIG.MAP_SIZE && gs.current.fog[x]) gs.current.fog[x][y] = true; 
       }
@@ -252,15 +243,13 @@ export default function GamePage() {
       });
   };
 
-  // --- GAMEPLAY ACTIONS ---
-
   const addXp = (amount: number) => {
       gs.current.player.xp += amount;
       const xpNeeded = gs.current.player.level * 1000;
       if(gs.current.player.xp >= xpNeeded) {
           gs.current.player.level++;
           gs.current.player.xp -= xpNeeded;
-          gs.current.player.resources.gold += 500; // Level ödülü
+          gs.current.player.resources.gold += 500; 
           spawnFloatingText(0,0, `SEVİYE ATLADIN! (Lvl ${gs.current.player.level})`, "#facc15");
       }
   };
@@ -273,7 +262,6 @@ export default function GamePage() {
           if(Math.hypot(rx-cx, ry-cx) < CONFIG.MAP_SIZE/2 - 3) {
               if(!gs.current.entities.find(e => e.pos.x === rx && e.pos.y === ry)) {
                    const r = Math.random(); let type = 'tree'; 
-                   const S = CONFIG.SPAWN_RATES; 
                    if (r > (1 - 0.02)) type = 'chest'; else if (r > (1 - 0.1)) type = 'gold'; 
                    else if (r > (1 - 0.45)) type = 'deer'; else if (r > (1 - 0.65)) type = 'stone';
                    gs.current.entities.push({ id: `n_${Date.now()}_${attempt}`, type, pos: {x:rx, y:ry}, pixelPos: {x:0,y:0}, hp:100, maxHp:100, owner:'nature' });
@@ -304,7 +292,7 @@ export default function GamePage() {
           if(buildMode === 'house') gs.current.player.maxPop += 5;
           if(buildMode === 'storage') gs.current.player.storageCap += 1000;
           
-          addXp(50); // Bina yapınca XP
+          addXp(50);
           setBuildMode(null);
           saveGame();
           setInfoText("İnşaat Başarılı!");
@@ -322,6 +310,8 @@ export default function GamePage() {
       if(type==='soldier') { cost.gold = 50; cost.stone = 20; }
       if(type==='king') cost.gold = 500;
 
+      if(type==='king' && gs.current.entities.find(e => e.type==='king' && e.owner === gs.current.userId)) { setInfoText("Kralın Zaten Var!"); return; }
+      
       if(p.resources.food >= cost.food && p.resources.gold >= cost.gold && p.resources.stone >= cost.stone) {
           p.resources.food -= cost.food; p.resources.gold -= cost.gold; p.resources.stone -= cost.stone;
           const cx = Math.floor(CONFIG.MAP_SIZE/2);
@@ -341,12 +331,10 @@ export default function GamePage() {
       if(!spell) return;
       if(gs.current.player.mana >= spell.mana) {
           gs.current.player.mana -= spell.mana;
-          
           if(spellId === 'nature') { for(let i=0;i<10;i++) spawnRandomResource(); }
           if(spellId === 'goldrain') { gs.current.player.resources.gold += 200; }
           if(spellId === 'speed') { gs.current.spellActive = true; setTimeout(()=>gs.current.spellActive=false, 10000); }
           if(spellId === 'shield') { gs.current.shieldActive = true; setTimeout(()=>gs.current.shieldActive=false, 15000); }
-
           setInfoText(`${spell.name} yapıldı!`);
           saveGame();
       } else {
@@ -378,7 +366,6 @@ export default function GamePage() {
       setChatInput("");
   };
 
-  // --- LOGIN ---
   const handleLoginBtn = async () => {
       if(!usernameInput || pinInput.length !== 4) return;
       const usersRef = ref(db, 'empires_final');
@@ -399,34 +386,32 @@ export default function GamePage() {
       }
   };
 
-  // --- LOOPS (RENDER & LOGIC) ---
-  const checkDailyReward = () => {
-      // Basit mantık: Her sayfa yenilemede kontrol (Geliştirilebilir)
-  };
+  const checkDailyReward = () => {};
 
   const updateLogic = () => {
       const now = Date.now();
-      
-      // Mana Regen
       if(gs.current.player.mana < gs.current.player.maxMana) gs.current.player.mana += 0.05;
 
-      // Gece/Gündüz
       const cycle = (now % CONFIG.DAY_CYCLE_DURATION) / CONFIG.DAY_CYCLE_DURATION;
       gs.current.nightMode = cycle > (1 - CONFIG.NIGHT_DURATION_RATIO);
       const totalSec = CONFIG.DAY_CYCLE_DURATION / 1000;
       const remSec = Math.floor((gs.current.nightMode ? (1-cycle) : ((1-CONFIG.NIGHT_DURATION_RATIO)-cycle)) * totalSec);
       gs.current.timerText = `${gs.current.nightMode ? '🌙 Gece' : '☀️ Gündüz'} ${Math.floor(remSec/60)}:${(remSec%60).toString().padStart(2,'0')}`;
 
-      // Rastgele Hava
       if(Math.random() < 0.001) gs.current.weather = gs.current.weather === 'sunny' ? 'rain' : 'sunny';
 
-      // Spawn
+      if(!gs.current.nightMode && Math.random() < 0.0005 && !gs.current.traderActive) {
+          gs.current.traderActive = true;
+          spawnFloatingText(0,0, "TÜCCAR GELDİ!", "#d946ef");
+          setTimeout(() => { gs.current.traderActive = false; spawnFloatingText(0,0, "Tüccar Gitti...", "#d946ef"); updateUi(); }, 30000); 
+          updateUi();
+      }
+
       if(now > gs.current.nextSpawnTime) { spawnRandomResource(); gs.current.nextSpawnTime = now + CONFIG.BASE_SPAWN_TIME; }
 
-      // Barbar Spawn (Sadece Gece)
       if(gs.current.nightMode && now - gs.current.lastEnemySpawn > 10000) {
           const soldiers = gs.current.entities.filter(e => e.type === 'soldier' && e.owner === gs.current.userId).length;
-          if(soldiers > 0 || Math.random() < 0.3) { // Asker yoksa az gelsin
+          if(soldiers > 0 || Math.random() < 0.3) { 
              const angle = Math.random() * Math.PI * 2;
              const sx = Math.floor(CONFIG.MAP_SIZE/2 + Math.cos(angle)*30);
              const sy = Math.floor(CONFIG.MAP_SIZE/2 + Math.sin(angle)*30);
@@ -436,17 +421,24 @@ export default function GamePage() {
           }
       }
 
-      // ENTITY LOOP
+      if(now - gs.current.lastIncomeTime > 10000) {
+          const towers = gs.current.entities.filter(e => e.type === 'tower' && e.owner === gs.current.userId && !e.dead).length;
+          const farms = gs.current.entities.filter(e => e.type === 'farm' && e.owner === gs.current.userId && !e.dead).length;
+          let farmBonus = gs.current.weather === 'rain' ? 2 : 1; 
+          if(towers > 0) { gs.current.player.resources.gold += towers * 10; spawnFloatingText(0, 0, `+${towers * 10} Vergi`, '#facc15'); }
+          if(farms > 0) { gs.current.player.resources.food += farms * 5 * farmBonus; spawnFloatingText(0, 0, `+${farms * 5 * farmBonus} Hasat`, '#fb923c'); }
+          if(towers>0 || farms>0) updateUi();
+          gs.current.lastIncomeTime = now;
+      }
+
       gs.current.camera.x += (gs.current.camera.targetX - gs.current.camera.x) * 0.1;
       gs.current.camera.y += (gs.current.camera.targetY - gs.current.camera.y) * 0.1;
 
       gs.current.entities.forEach(ent => {
           if(!ent.pixelPos) ent.pixelPos = { x: (ent.pos.x - ent.pos.y) * 64, y: (ent.pos.x + ent.pos.y) * 32 };
-          // Basit interpolasyon
           const tx = (ent.pos.x - ent.pos.y) * 64; const ty = (ent.pos.x + ent.pos.y) * 32;
           ent.pixelPos.x += (tx - ent.pixelPos.x) * 0.1; ent.pixelPos.y += (ty - ent.pixelPos.y) * 0.1;
 
-          // Worker Logic
           if(ent.type === 'worker' && ent.owner === gs.current.userId) {
               if(ent.state === 'IDLE') {
                   const target = gs.current.entities.find(e => (e.type==='tree'||e.type==='stone'||e.type==='gold') && !e.dead);
@@ -466,12 +458,12 @@ export default function GamePage() {
               }
               if(ent.state === 'WORK' && ent.targetId) {
                   const t = gs.current.entities.find(e => e.id === ent.targetId);
-                  if(t && now - ent.workStart > 3000) { // 3sn çalışma
+                  if(t && now - ent.workStart > 3000) { 
                       if(t.type === 'tree') gs.current.player.resources.wood += 20;
                       if(t.type === 'stone') gs.current.player.resources.stone += 20;
                       if(t.type === 'gold') gs.current.player.resources.gold += 20;
                       addXp(10);
-                      t.dead = true; // Kaynağı yok et
+                      t.dead = true; 
                       ent.state = 'IDLE';
                       saveGame();
                   }
@@ -485,26 +477,24 @@ export default function GamePage() {
   const render = () => {
       const cvs = canvasRef.current; if(!cvs) return; const ctx = cvs.getContext('2d'); if(!ctx) return;
       cvs.width = window.innerWidth; cvs.height = window.innerHeight;
-      ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0,0,cvs.width,cvs.height); // Arkaplan
+      ctx.fillStyle = '#1a1a2e'; ctx.fillRect(0,0,cvs.width,cvs.height);
 
       const cam = gs.current.camera;
       const zoom = cam.zoom;
       const isoX = (x:number, y:number) => (x - y) * (CONFIG.TILE_WIDTH/2) * zoom + cvs.width/2 - cam.x;
       const isoY = (x:number, y:number) => (x + y) * (CONFIG.TILE_HEIGHT/2) * zoom + cvs.height/2 - cam.y;
 
-      // Çizim Döngüsü
       for(let x=0; x<CONFIG.MAP_SIZE; x++) {
           for(let y=0; y<CONFIG.MAP_SIZE; y++) {
-              if(!gs.current.fog[x] || !gs.current.fog[x][y]) continue; // Sis kontrolü
+              if(gs.current.fog[x] && !gs.current.fog[x][y]) continue; 
               const px = isoX(x,y); const py = isoY(x,y);
-              if(px < -100 || px > cvs.width+100 || py < -100 || py > cvs.height+100) continue; // Culling
+              if(px < -100 || px > cvs.width+100 || py < -100 || py > cvs.height+100) continue; 
 
               const img = gs.current.map[x][y] === 1 ? AssetManager.images.water : AssetManager.images.grass;
               if(img) ctx.drawImage(img, px - (64*zoom), py, 128*zoom, 64*zoom);
           }
       }
 
-      // Varlıkları Çiz (Y sıralama ile)
       gs.current.entities.sort((a,b) => (a.pos.x + a.pos.y) - (b.pos.x + b.pos.y));
       gs.current.entities.forEach(e => {
           const ix = Math.floor(e.pos.x); const iy = Math.floor(e.pos.y);
@@ -515,17 +505,21 @@ export default function GamePage() {
           if(img) {
               const h = (img.height/img.width) * (128*zoom) * (CONFIG.SCALE_FACTORS[e.type] || 1);
               ctx.drawImage(img, px - (64*zoom), py - h + (32*zoom), 128*zoom * (CONFIG.SCALE_FACTORS[e.type] || 1), h);
-              
-              // Durum İkonları (Emoji)
               if(e.state === 'IDLE') ctx.fillText("💤", px, py - h);
               if(e.state === 'WORK') ctx.fillText("🔨", px, py - h);
           }
       });
 
-      // Gece Efekti
       if(gs.current.nightMode) { ctx.fillStyle = 'rgba(0,0,50,0.4)'; ctx.fillRect(0,0,cvs.width,cvs.height); }
-      // Yağmur Efekti
       if(gs.current.weather === 'rain') { ctx.fillStyle = 'rgba(100,100,255,0.1)'; ctx.fillRect(0,0,cvs.width,cvs.height); }
+      
+      gs.current.particles.forEach(p => { 
+          const screenX = (p.x * zoom) + cvs.width/2 - cam.x; 
+          const screenY = (p.y * zoom) + cvs.height/2 - cam.y; 
+          ctx.globalAlpha = p.life / p.maxLife; ctx.fillStyle = p.color; ctx.font = `bold ${16 * zoom}px Arial`; 
+          ctx.fillText(p.text, screenX, screenY); 
+          ctx.globalAlpha = 1.0; 
+      });
   };
 
   const handleInput = (e: any) => {
@@ -544,26 +538,26 @@ export default function GamePage() {
           }
       } else if (e.type === 'mouseup' || e.type === 'touchend') {
           if(!gs.current.input.isDragging && buildMode) {
-              // Tıklanan koordinatı bul
               const cam = gs.current.camera;
               const adjX = x - window.innerWidth/2 + cam.x;
               const adjY = y - window.innerHeight/2 + cam.y;
-              // İzometrik ters dönüşüm (basit)
-              const isoY = (2 * adjY - adjX) / 2; // Yaklaşık
-              const isoX = adjX + isoY; // Yaklaşık
+              const isoY = (2 * adjY - adjX) / 2; 
+              const isoX = adjX + isoY;
               const tileX = Math.round(isoX / 64);
-              const tileY = Math.round(isoY / 64); // Basitleştirilmiş, hassas değil ama çalışır
-              
-              // Daha hassas bir click için ızgara mantığını view'den almak lazım ama şimdilik ortalama
-              placeBuilding(Math.floor(gs.current.camera.x/64) + 40, Math.floor(gs.current.camera.y/64) + 40); // Merkeze koyar
+              const tileY = Math.round(isoY / 64);
+              placeBuilding(tileX, tileY);
           }
       }
+  };
+
+  const handleZoom = (d: number) => {
+      let z = gs.current.camera.zoom + d;
+      gs.current.camera.zoom = Math.max(CONFIG.ZOOM_MIN, Math.min(CONFIG.ZOOM_MAX, z));
   };
 
   return (
     <div className="fixed inset-0 bg-slate-900 overflow-hidden select-none font-sans text-white">
         
-        {/* LOGIN MODAL */}
         {loginModal && (
             <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur">
                 <div className="bg-slate-800 p-6 rounded-2xl w-80 text-center border border-emerald-500/50 shadow-2xl">
@@ -576,7 +570,6 @@ export default function GamePage() {
             </div>
         )}
 
-        {/* TOP BAR */}
         <div className="absolute top-0 left-0 right-0 z-20 p-2 flex justify-center pointer-events-none">
             <div className="bg-black/80 backdrop-blur rounded-2xl p-2 flex items-center gap-4 border border-white/10 pointer-events-auto shadow-lg">
                 <div className="flex gap-3 text-sm font-bold font-mono">
@@ -603,14 +596,11 @@ export default function GamePage() {
             </div>
         </div>
 
-        {/* INFO TEXT */}
         <div className="absolute top-20 w-full text-center z-10 pointer-events-none">
             <span className="bg-black/60 px-4 py-1 rounded text-yellow-300 text-sm font-bold shadow">{infoText}</span>
         </div>
 
-        {/* RIGHT SIDE QUEST BOX */}
         <div className="absolute top-24 right-4 z-20 flex flex-col gap-2 w-48">
-            {/* Quest */}
             {showQuestBox && (
                 <div className="bg-slate-900/90 border border-amber-600/50 p-3 rounded-lg shadow-xl relative animate-in slide-in-from-right">
                     <button onClick={()=>setShowQuestBox(false)} className="absolute top-1 right-2 text-xs text-gray-500">✕</button>
@@ -621,11 +611,9 @@ export default function GamePage() {
             )}
             {!showQuestBox && <button onClick={()=>setShowQuestBox(true)} className="bg-slate-800 p-2 rounded-full border border-amber-600 text-xl self-end">📜</button>}
             
-            {/* Trader Icon */}
             {ui.trader && <div className="bg-purple-900/90 border border-purple-500 p-2 rounded-lg text-center animate-bounce cursor-pointer" onClick={()=>setActiveMenu('market')}>🎒 TÜCCAR</div>}
         </div>
 
-        {/* BOTTOM LEFT CHAT */}
         <div className="absolute bottom-24 left-4 z-20 w-64">
             <div className={`bg-black/70 backdrop-blur rounded-lg border border-white/10 overflow-hidden transition-all ${showChat ? 'h-48' : 'h-8'}`}>
                 <div className="bg-black/50 p-1 flex justify-between items-center cursor-pointer" onClick={()=>setShowChat(!showChat)}>
@@ -641,14 +629,13 @@ export default function GamePage() {
                         </div>
                         <div className="p-1 flex gap-1 border-t border-white/10">
                             <input className="flex-1 bg-transparent text-xs p-1 outline-none text-white" placeholder="Mesaj yaz..." value={chatInput} onChange={e=>setChatInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&sendChat()} />
-                            <button onClick={sendChat} className="bg-emerald-700 px-2 rounded text-xs">></button>
+                            <button onClick={sendChat} className="bg-emerald-700 px-2 rounded text-xs">&gt;</button>
                         </div>
                     </div>
                 )}
             </div>
         </div>
 
-        {/* BOTTOM MENU BAR */}
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30">
             <div className="flex gap-2 bg-slate-900/90 p-2 rounded-2xl border border-white/10 shadow-2xl backdrop-blur-md">
                 <MenuBtn icon="🔨" label="YAPI" active={activeMenu==='build'} onClick={()=>setActiveMenu(activeMenu==='build'?'none':'build')} />
@@ -659,7 +646,6 @@ export default function GamePage() {
                 <MenuBtn icon="⚔️" label="ASKER" onClick={()=>spawnUnit('soldier')} />
             </div>
 
-            {/* SUB MENUS */}
             {activeMenu === 'build' && (
                 <div className="absolute bottom-20 left-0 w-full flex justify-center">
                     <div className="bg-slate-800 p-3 rounded-xl border border-orange-500 flex gap-2 overflow-x-auto max-w-sm">
@@ -695,7 +681,7 @@ export default function GamePage() {
                         {CONFIG.TRADES.map(t => (
                             <button key={t.id} onClick={()=>executeTrade(t.id)} className="flex justify-between items-center bg-slate-700 p-2 rounded hover:bg-slate-600 text-xs">
                                 <span>{t.desc}</span>
-                                <span className="text-gray-400">{t.give.amount} -> {t.get.amount}</span>
+                                <span className="text-gray-400">{t.give.amount} &rarr; {t.get.amount}</span>
                             </button>
                         ))}
                     </div>
@@ -703,13 +689,12 @@ export default function GamePage() {
             )}
         </div>
 
-        {/* CANVAS LAYER */}
-        <canvas 
-            ref={canvasRef}
-            className="block w-full h-full cursor-grab active:cursor-grabbing touch-none z-0"
-            onMouseDown={handleInput} onMouseMove={handleInput} onMouseUp={handleInput}
-            onTouchStart={handleInput} onTouchMove={handleInput} onTouchEnd={handleInput}
-        />
+        <div className="absolute top-24 left-4 flex flex-col gap-2 pointer-events-auto z-20"> 
+            <button onClick={()=>handleZoom(0.1)} className="bg-slate-700 w-10 h-10 rounded text-xl font-bold border border-white/10">+</button> 
+            <button onClick={()=>handleZoom(-0.1)} className="bg-slate-700 w-10 h-10 rounded text-xl font-bold border border-white/10">-</button> 
+        </div>
+
+        <canvas ref={canvasRef} className="block w-full h-full cursor-grab active:cursor-grabbing touch-none z-0" onMouseDown={handleInput} onMouseMove={handleInput} onMouseUp={handleInput} onTouchStart={handleInput} onTouchMove={handleInput} onTouchEnd={handleInput} onWheel={(e)=>handleZoom(e.deltaY>0?-0.1:0.1)} />
     </div>
   );
 }
