@@ -5,7 +5,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getDatabase, ref, update, onValue, push, query, orderByChild, limitToLast, get, equalTo } from "firebase/database";
 
 // ==========================================
-// 1. AYARLAR & OYUN DENGESİ (V32.5 FIXED)
+// 1. AYARLAR & OYUN DENGESİ (V32.6 FIXED)
 // ==========================================
 const CONFIG = {
   TILE_WIDTH: 128, TILE_HEIGHT: 64,
@@ -118,7 +118,6 @@ export default function GamePage() {
     player: { 
         username: "", resources: { wood: 100, stone: 50, gold: 50, food: 100 }, 
         xp: 0, level: 1,
-        // FIX: EKSİK OLAN STATLAR EKLENDİ (BU YÜZDEN HATA VERİYORDU)
         stats: { score: 0, kills: 0, totalWood: 0, totalDeer: 0, totalGold: 0 }, 
         upgrades: { tool: 0, nature: 0, speed: 0, cap: 0, war: 0, wall: 0 },
         mana: 100, maxMana: 100, achievements: [] as string[],
@@ -131,7 +130,8 @@ export default function GamePage() {
     nextSpawnTime: Date.now() + CONFIG.BASE_SPAWN_TIME, lastIncomeTime: Date.now(), lastEnemySpawn: Date.now(),
     timeOfDay: 0, spellActive: false, shieldActive: false,
     nightMode: false, weather: 'sunny',
-    traderActive: false
+    traderActive: false,
+    timerText: "00:00" // <--- EKLENDİ
   });
 
   // --- UI STATE ---
@@ -179,7 +179,6 @@ export default function GamePage() {
       ACHIEVEMENTS_LIST.forEach(ac => {
           if(!p.achievements.includes(ac.id)) {
               let val = 0;
-              // FIX: Stats artık tanımlı, hata vermez
               if(ac.type === 'wood') val = p.stats.totalWood; 
               if(ac.type === 'deer') val = p.stats.totalDeer;
               if(ac.type === 'gold') val = p.stats.totalGold; 
@@ -285,7 +284,6 @@ export default function GamePage() {
           resources: p.resources || { wood: 100, stone: 50, gold: 50, food: 100 },
           xp: p.xp || 0,
           level: p.level || 1,
-          // FIX: Stats birleştirme (Eski veriyi koru, yoksa 0 yap)
           stats: {
               score: p.stats?.score || 0,
               kills: p.stats?.kills || 0,
