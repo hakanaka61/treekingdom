@@ -5,7 +5,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getDatabase, ref, update, onValue, push, query, orderByChild, limitToLast, get, equalTo } from "firebase/database";
 
 // ==========================================
-// 1. AYARLAR & OYUN DENGESİ (V32.7 FINAL FIX)
+// 1. AYARLAR & OYUN DENGESİ (V33.0 PIN FIX)
 // ==========================================
 const CONFIG = {
   TILE_WIDTH: 128, TILE_HEIGHT: 64,
@@ -116,7 +116,7 @@ export default function GamePage() {
     map: [] as number[][], fog: [] as boolean[][], 
     entities: [] as any[], particles: [] as any[], rain: [] as any[],
     player: { 
-        username: "", resources: { wood: 100, stone: 50, gold: 50, food: 100 }, 
+        username: "", pin: "", resources: { wood: 100, stone: 50, gold: 50, food: 100 }, // PIN EKLENDI
         xp: 0, level: 1,
         stats: { score: 0, kills: 0, totalWood: 0, totalDeer: 0, totalGold: 0 }, 
         upgrades: { tool: 0, nature: 0, speed: 0, cap: 0, war: 0, wall: 0 },
@@ -142,7 +142,6 @@ export default function GamePage() {
       timer: "00:00", isNight: false, weather: 'sunny', trader: false
   });
   
-  // --- MISSING STATES RESTORED HERE ---
   const [activeMenu, setActiveMenu] = useState<'none' | 'build' | 'magic' | 'market'>('none');
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<any[]>([]);
@@ -156,7 +155,6 @@ export default function GamePage() {
   const [buildMode, setBuildMode] = useState<string | null>(null);
   const [upgradesUI, setUpgradesUI] = useState(gs.current.player.upgrades);
   
-  // !!! BU SATIRLAR EKSİKTİ, GERİ EKLENDİ !!!
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showAchievements, setShowAchievements] = useState(false);
@@ -291,6 +289,7 @@ export default function GamePage() {
       gs.current.player = {
           ...gs.current.player,
           username: p.username || "Oyuncu",
+          pin: p.pin || "", // PIN FIX
           resources: p.resources || { wood: 100, stone: 50, gold: 50, food: 100 },
           xp: p.xp || 0,
           level: p.level || 1,
@@ -369,7 +368,7 @@ export default function GamePage() {
     return () => { cancelAnimationFrame(anim); clearInterval(uiTimer); };
   }, []);
 
-  const handleLogin = async () => {
+  const handleLoginBtn = async () => {
       if(!usernameInput.trim() || pinInput.length !== 4) { setLoginError("Hatalı giriş."); return; }
       setLoginError("Kontrol ediliyor...");
       const cleanName = usernameInput.trim();
@@ -492,17 +491,6 @@ export default function GamePage() {
       } else {
           setInfoText("Yetersiz Kaynak!");
       }
-  };
-
-  const buyUpgrade = (type: 'tool' | 'nature' | 'speed' | 'cap' | 'war' | 'wall') => {
-      const conf = CONFIG.UPGRADES[type]; const lvl = gs.current.player.upgrades[type] || 0;
-      if(lvl >= 10) return;
-      const cost = Math.floor(conf.baseCost * Math.pow(conf.mult, lvl));
-      if(gs.current.player.resources.wood >= cost) {
-          gs.current.player.resources.wood -= cost; gs.current.player.upgrades[type]++;
-          if(type === 'cap') gs.current.player.maxPop += 2;
-          updateUi(); saveGame();
-      } else { setInfoText(`Yetersiz Odun (${cost})`); }
   };
 
   const sendChat = () => {
