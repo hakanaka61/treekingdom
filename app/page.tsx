@@ -5,7 +5,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getDatabase, ref, update, onValue, push, query, orderByChild, limitToLast, get, equalTo } from "firebase/database";
 
 // ==========================================
-// 1. AYARLAR & OYUN DENGESİ (V32.0 REBORN)
+// 1. AYARLAR & OYUN DENGESİ (V32.1 STRICT FIX)
 // ==========================================
 const CONFIG = {
   TILE_WIDTH: 128, TILE_HEIGHT: 64,
@@ -112,7 +112,9 @@ export default function GamePage() {
   const [loginModal, setLoginModal] = useState(true);
   const [usernameInput, setUsernameInput] = useState("");
   const [pinInput, setPinInput] = useState("");
+  const [loginError, setLoginError] = useState("");
   const [infoText, setInfoText] = useState("İmparatorluğunu Kur!");
+  const [buildMode, setBuildMode] = useState<string | null>(null); // buildMode EKLENDİ
 
   // --- INITIALIZATION ---
   useEffect(() => {
@@ -148,6 +150,7 @@ export default function GamePage() {
   // --- CORE FUNCTIONS ---
 
   const generateMap = () => {
+      // FIX: Tipler eklendi
       const map: number[][] = [], fog: boolean[][] = [];
       for(let x=0; x<CONFIG.MAP_SIZE; x++) {
         const row: number[] = [], fogRow: boolean[] = [];
@@ -168,6 +171,7 @@ export default function GamePage() {
       // 1. Harita Boyutu Kontrolü (Fog)
       if(!val.fog || val.fog.length !== CONFIG.MAP_SIZE) {
           console.log("Harita boyutu uyuşmazlığı, onarılıyor...");
+          // FIX: Tipler eklendi (HATA BURADAYDI)
           const newFog: boolean[][] = [];
           for(let x=0; x<CONFIG.MAP_SIZE; x++) {
               const row: boolean[] = [];
@@ -269,7 +273,7 @@ export default function GamePage() {
           if(Math.hypot(rx-cx, ry-cx) < CONFIG.MAP_SIZE/2 - 3) {
               if(!gs.current.entities.find(e => e.pos.x === rx && e.pos.y === ry)) {
                    const r = Math.random(); let type = 'tree'; 
-                   const S = CONFIG.SPAWN_RATES; // 0.35, 0.20...
+                   const S = CONFIG.SPAWN_RATES; 
                    if (r > (1 - 0.02)) type = 'chest'; else if (r > (1 - 0.1)) type = 'gold'; 
                    else if (r > (1 - 0.45)) type = 'deer'; else if (r > (1 - 0.65)) type = 'stone';
                    gs.current.entities.push({ id: `n_${Date.now()}_${attempt}`, type, pos: {x:rx, y:ry}, pixelPos: {x:0,y:0}, hp:100, maxHp:100, owner:'nature' });
