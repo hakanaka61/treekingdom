@@ -5,7 +5,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getDatabase, ref, update, onValue, push, query, orderByChild, limitToLast, get, equalTo } from "firebase/database";
 
 // ==========================================
-// 1. AYARLAR & OYUN DENGESİ (V34.0 FINAL)
+// 1. AYARLAR & OYUN DENGESİ (V35.0 FINAL)
 // ==========================================
 const CONFIG = {
   TILE_WIDTH: 128, TILE_HEIGHT: 64,
@@ -162,6 +162,8 @@ export default function GamePage() {
   const [showHelp, setShowHelp] = useState(false);
   const [techModal, setTechModal] = useState(false);
   const [traderModal, setTraderModal] = useState(false);
+  // FIX: hasKing STATE EKLENDI
+  const [hasKing, setHasKing] = useState(false);
 
   const log = useCallback((msg: string) => {}, []);
 
@@ -214,6 +216,8 @@ export default function GamePage() {
           trader: gs.current.traderActive
       });
       setUpgradesUI({...p.upgrades});
+      // FIX: hasKing güncelleniyor
+      setHasKing(gs.current.entities.some(e => e.type === 'king' && e.owner === gs.current.userId && !e.dead));
   };
 
   const saveGame = () => {
@@ -350,7 +354,7 @@ export default function GamePage() {
     gs.current.camera.x = centerX; gs.current.camera.y = centerY;
     gs.current.camera.targetX = centerX; gs.current.camera.targetY = centerY;
 
-    const savedUid = localStorage.getItem("orman_v34_uid");
+    const savedUid = localStorage.getItem("orman_v35_uid");
     if (savedUid) { gs.current.userId = savedUid; connectToDb(savedUid); setLoginModal(false); }
 
     const lbRef = query(ref(db, 'leaderboard'), orderByChild('score'), limitToLast(10));
@@ -368,7 +372,7 @@ export default function GamePage() {
     return () => { cancelAnimationFrame(anim); clearInterval(uiTimer); };
   }, []);
 
-  // --- LOGIN FUNCTION (FIXED NAME) ---
+  // --- LOGIN FUNCTION (FIXED) ---
   const handleLogin = async () => {
       if(!usernameInput.trim() || pinInput.length !== 4) { setLoginError("Hatalı giriş."); return; }
       setLoginError("Kontrol ediliyor...");
@@ -381,13 +385,13 @@ export default function GamePage() {
               let foundUid: string | null = null; let foundData: any = null;
               snapshot.forEach((child) => { foundUid = child.key; foundData = child.val(); });
               if (foundData && foundData.player.pin === pinInput) {
-                  localStorage.setItem("orman_v34_uid", foundUid!);
+                  localStorage.setItem("orman_v35_uid", foundUid!);
                   gs.current.userId = foundUid; connectToDb(foundUid!); setLoginModal(false);
               } else { setLoginError("Yanlış PIN"); }
           } else {
               const newUid = "u_" + Date.now() + Math.random().toString(36).substr(2,5);
               gs.current.player.username = cleanName; gs.current.player.pin = pinInput; gs.current.userId = newUid;
-              localStorage.setItem("orman_v34_uid", newUid);
+              localStorage.setItem("orman_v35_uid", newUid);
               initNewPlayer(newUid); setLoginModal(false);
           }
       } catch (error) { setLoginError("Bağlantı hatası."); }
@@ -477,6 +481,7 @@ export default function GamePage() {
       }
   };
 
+  // FIX: buyUpgrade GERİ GELDİ
   const buyUpgrade = (key: any) => {
       const conf = CONFIG.UPGRADES[key as keyof typeof CONFIG.UPGRADES];
       const lvl = gs.current.player.upgrades[key as keyof typeof gs.current.player.upgrades] || 0;
