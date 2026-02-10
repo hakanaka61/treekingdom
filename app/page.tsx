@@ -5,7 +5,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getDatabase, ref, update, onValue, push, query, orderByChild, limitToLast, get, equalTo } from "firebase/database";
 
 // ==========================================
-// 1. AYARLAR & OYUN DENGESİ (V35.0 FINAL)
+// 1. AYARLAR & OYUN DENGESİ (V36.0 FINAL)
 // ==========================================
 const CONFIG = {
   TILE_WIDTH: 128, TILE_HEIGHT: 64,
@@ -139,7 +139,8 @@ export default function GamePage() {
       res: gs.current.player.resources, pop: 0, maxPop: 5, mana: 100, 
       level: 1, xp: 0, xpNext: 1000,
       quest: gs.current.player.quest,
-      timer: "00:00", isNight: false, weather: 'sunny', trader: false
+      timer: "00:00", isNight: false, weather: 'sunny', trader: false,
+      heroLvl: 1 // FIX: EKLENDI
   });
   
   const [activeMenu, setActiveMenu] = useState<'none' | 'build' | 'magic' | 'market'>('none');
@@ -162,7 +163,6 @@ export default function GamePage() {
   const [showHelp, setShowHelp] = useState(false);
   const [techModal, setTechModal] = useState(false);
   const [traderModal, setTraderModal] = useState(false);
-  // FIX: hasKing STATE EKLENDI
   const [hasKing, setHasKing] = useState(false);
 
   const log = useCallback((msg: string) => {}, []);
@@ -213,10 +213,10 @@ export default function GamePage() {
           timer: gs.current.timerText,
           isNight: gs.current.nightMode,
           weather: gs.current.weather,
-          trader: gs.current.traderActive
+          trader: gs.current.traderActive,
+          heroLvl: p.heroLevel || 1 // FIX: EKLENDI
       });
       setUpgradesUI({...p.upgrades});
-      // FIX: hasKing güncelleniyor
       setHasKing(gs.current.entities.some(e => e.type === 'king' && e.owner === gs.current.userId && !e.dead));
   };
 
@@ -308,7 +308,8 @@ export default function GamePage() {
           mana: p.mana || 100,
           maxPop: p.maxPop || 5,
           storageCap: p.storageCap || CONFIG.BASE_STORAGE,
-          quest: p.quest || generateDailyQuest()
+          quest: p.quest || generateDailyQuest(),
+          heroLevel: p.heroLevel || 1 // EKLENDI
       };
 
       gs.current.entities = (val.entities || []).filter((e:any) => !e.dead);
@@ -354,7 +355,7 @@ export default function GamePage() {
     gs.current.camera.x = centerX; gs.current.camera.y = centerY;
     gs.current.camera.targetX = centerX; gs.current.camera.targetY = centerY;
 
-    const savedUid = localStorage.getItem("orman_v35_uid");
+    const savedUid = localStorage.getItem("orman_v36_uid");
     if (savedUid) { gs.current.userId = savedUid; connectToDb(savedUid); setLoginModal(false); }
 
     const lbRef = query(ref(db, 'leaderboard'), orderByChild('score'), limitToLast(10));
@@ -372,7 +373,6 @@ export default function GamePage() {
     return () => { cancelAnimationFrame(anim); clearInterval(uiTimer); };
   }, []);
 
-  // --- LOGIN FUNCTION (FIXED) ---
   const handleLogin = async () => {
       if(!usernameInput.trim() || pinInput.length !== 4) { setLoginError("Hatalı giriş."); return; }
       setLoginError("Kontrol ediliyor...");
@@ -385,13 +385,13 @@ export default function GamePage() {
               let foundUid: string | null = null; let foundData: any = null;
               snapshot.forEach((child) => { foundUid = child.key; foundData = child.val(); });
               if (foundData && foundData.player.pin === pinInput) {
-                  localStorage.setItem("orman_v35_uid", foundUid!);
+                  localStorage.setItem("orman_v36_uid", foundUid!);
                   gs.current.userId = foundUid; connectToDb(foundUid!); setLoginModal(false);
               } else { setLoginError("Yanlış PIN"); }
           } else {
               const newUid = "u_" + Date.now() + Math.random().toString(36).substr(2,5);
               gs.current.player.username = cleanName; gs.current.player.pin = pinInput; gs.current.userId = newUid;
-              localStorage.setItem("orman_v35_uid", newUid);
+              localStorage.setItem("orman_v36_uid", newUid);
               initNewPlayer(newUid); setLoginModal(false);
           }
       } catch (error) { setLoginError("Bağlantı hatası."); }
@@ -440,8 +440,20 @@ export default function GamePage() {
       }
   };
 
-  const spawnUnit = (type: 'worker' | 'soldier' | 'king') => {
+  const spawnUnit = (type: 'worker' | 'soldier' | 'king' | 'upgrade_king') => {
       const p = gs.current.player;
+      
+      if(type === 'upgrade_king') {
+          const cost = (p.heroLevel || 1) * 500;
+          if(p.resources.gold >= cost) {
+              p.resources.gold -= cost;
+              p.heroLevel = (p.heroLevel || 1) + 1;
+              setInfoText(`KRAL Lvl ${p.heroLevel} OLDU!`);
+              saveGame(); updateUi();
+          } else { setInfoText("Yetersiz Altın!"); }
+          return;
+      }
+
       if(type !== 'king' && ui.pop >= ui.maxPop) { setInfoText("Nüfus Dolu!"); return; }
       
       let cost: any = { wood:0, food:0, gold:0, stone:0 };
@@ -481,7 +493,6 @@ export default function GamePage() {
       }
   };
 
-  // FIX: buyUpgrade GERİ GELDİ
   const buyUpgrade = (key: any) => {
       const conf = CONFIG.UPGRADES[key as keyof typeof CONFIG.UPGRADES];
       const lvl = gs.current.player.upgrades[key as keyof typeof gs.current.player.upgrades] || 0;
