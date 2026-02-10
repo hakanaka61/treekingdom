@@ -5,7 +5,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getDatabase, ref, update, onValue, push, query, orderByChild, limitToLast, get, equalTo } from "firebase/database";
 
 // ==========================================
-// 1. AYARLAR & OYUN DENGESİ (V33.0 PIN FIX)
+// 1. AYARLAR & OYUN DENGESİ (V33.1 FINAL)
 // ==========================================
 const CONFIG = {
   TILE_WIDTH: 128, TILE_HEIGHT: 64,
@@ -116,7 +116,7 @@ export default function GamePage() {
     map: [] as number[][], fog: [] as boolean[][], 
     entities: [] as any[], particles: [] as any[], rain: [] as any[],
     player: { 
-        username: "", pin: "", resources: { wood: 100, stone: 50, gold: 50, food: 100 }, // PIN EKLENDI
+        username: "", pin: "", resources: { wood: 100, stone: 50, gold: 50, food: 100 }, 
         xp: 0, level: 1,
         stats: { score: 0, kills: 0, totalWood: 0, totalDeer: 0, totalGold: 0 }, 
         upgrades: { tool: 0, nature: 0, speed: 0, cap: 0, war: 0, wall: 0 },
@@ -289,7 +289,7 @@ export default function GamePage() {
       gs.current.player = {
           ...gs.current.player,
           username: p.username || "Oyuncu",
-          pin: p.pin || "", // PIN FIX
+          pin: p.pin || "", 
           resources: p.resources || { wood: 100, stone: 50, gold: 50, food: 100 },
           xp: p.xp || 0,
           level: p.level || 1,
@@ -350,7 +350,7 @@ export default function GamePage() {
     gs.current.camera.x = centerX; gs.current.camera.y = centerY;
     gs.current.camera.targetX = centerX; gs.current.camera.targetY = centerY;
 
-    const savedUid = localStorage.getItem("orman_v32_uid");
+    const savedUid = localStorage.getItem("orman_v33_uid");
     if (savedUid) { gs.current.userId = savedUid; connectToDb(savedUid); setLoginModal(false); }
 
     const lbRef = query(ref(db, 'leaderboard'), orderByChild('score'), limitToLast(10));
@@ -368,7 +368,7 @@ export default function GamePage() {
     return () => { cancelAnimationFrame(anim); clearInterval(uiTimer); };
   }, []);
 
-  const handleLoginBtn = async () => {
+  const handleLogin = async () => {
       if(!usernameInput.trim() || pinInput.length !== 4) { setLoginError("Hatalı giriş."); return; }
       setLoginError("Kontrol ediliyor...");
       const cleanName = usernameInput.trim();
@@ -380,13 +380,13 @@ export default function GamePage() {
               let foundUid: string | null = null; let foundData: any = null;
               snapshot.forEach((child) => { foundUid = child.key; foundData = child.val(); });
               if (foundData && foundData.player.pin === pinInput) {
-                  localStorage.setItem("orman_v32_uid", foundUid!);
+                  localStorage.setItem("orman_v33_uid", foundUid!);
                   gs.current.userId = foundUid; connectToDb(foundUid!); setLoginModal(false);
               } else { setLoginError("Yanlış PIN"); }
           } else {
               const newUid = "u_" + Date.now() + Math.random().toString(36).substr(2,5);
               gs.current.player.username = cleanName; gs.current.player.pin = pinInput; gs.current.userId = newUid;
-              localStorage.setItem("orman_v32_uid", newUid);
+              localStorage.setItem("orman_v33_uid", newUid);
               initNewPlayer(newUid); setLoginModal(false);
           }
       } catch (error) { setLoginError("Bağlantı hatası."); }
@@ -475,6 +475,22 @@ export default function GamePage() {
           setInfoText("Mana Yetersiz!");
       }
   };
+
+  // --- EKLENEN MISSING FONKSIYON ---
+  const buyUpgrade = (key: any) => {
+      const conf = CONFIG.UPGRADES[key as keyof typeof CONFIG.UPGRADES];
+      const lvl = gs.current.player.upgrades[key as keyof typeof gs.current.player.upgrades] || 0;
+      if(lvl >= 10) return;
+      const cost = Math.floor(conf.baseCost * Math.pow(conf.mult, lvl));
+      if(gs.current.player.resources.wood >= cost) {
+          gs.current.player.resources.wood -= cost;
+          gs.current.player.upgrades[key as keyof typeof gs.current.player.upgrades]++;
+          if(key === 'cap') gs.current.player.maxPop += 2;
+          updateUi(); saveGame();
+          setInfoText(`${conf.name} Yükseltildi!`);
+      } else { setInfoText(`Yetersiz Odun (${cost})`); }
+  };
+  // ---------------------------------
 
   const executeTrade = (tradeId: number) => {
       const trade = CONFIG.TRADES.find(t => t.id === tradeId) || CONFIG.TRADER_DEALS.find(t => t.id === tradeId);
