@@ -5,7 +5,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getDatabase, ref, update, onValue, push, query, orderByChild, limitToLast, get, equalTo } from "firebase/database";
 
 // ==========================================
-// 1. AYARLAR & OYUN DENGESİ (V32.6 FIXED)
+// 1. AYARLAR & OYUN DENGESİ (V32.7 FINAL FIX)
 // ==========================================
 const CONFIG = {
   TILE_WIDTH: 128, TILE_HEIGHT: 64,
@@ -131,7 +131,7 @@ export default function GamePage() {
     timeOfDay: 0, spellActive: false, shieldActive: false,
     nightMode: false, weather: 'sunny',
     traderActive: false,
-    timerText: "00:00" // <--- EKLENDİ
+    timerText: "00:00"
   });
 
   // --- UI STATE ---
@@ -142,6 +142,7 @@ export default function GamePage() {
       timer: "00:00", isNight: false, weather: 'sunny', trader: false
   });
   
+  // --- MISSING STATES RESTORED HERE ---
   const [activeMenu, setActiveMenu] = useState<'none' | 'build' | 'magic' | 'market'>('none');
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<any[]>([]);
@@ -154,10 +155,19 @@ export default function GamePage() {
   const [infoText, setInfoText] = useState("İmparatorluğunu Kur!");
   const [buildMode, setBuildMode] = useState<string | null>(null);
   const [upgradesUI, setUpgradesUI] = useState(gs.current.player.upgrades);
+  
+  // !!! BU SATIRLAR EKSİKTİ, GERİ EKLENDİ !!!
+  const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [showAchievements, setShowAchievements] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [techModal, setTechModal] = useState(false);
+  const [traderModal, setTraderModal] = useState(false);
 
   const log = useCallback((msg: string) => {}, []);
 
-  // --- 1. EN TEMEL YARDIMCI FONKSİYONLAR (EN ÜSTTE) ---
+  // --- 1. YARDIMCI FONKSİYONLAR ---
   
   const generateDailyQuest = () => {
       const types = ['wood', 'stone', 'deer']; const type = types[Math.floor(Math.random()*types.length)];
@@ -484,31 +494,22 @@ export default function GamePage() {
       }
   };
 
+  const buyUpgrade = (type: 'tool' | 'nature' | 'speed' | 'cap' | 'war' | 'wall') => {
+      const conf = CONFIG.UPGRADES[type]; const lvl = gs.current.player.upgrades[type] || 0;
+      if(lvl >= 10) return;
+      const cost = Math.floor(conf.baseCost * Math.pow(conf.mult, lvl));
+      if(gs.current.player.resources.wood >= cost) {
+          gs.current.player.resources.wood -= cost; gs.current.player.upgrades[type]++;
+          if(type === 'cap') gs.current.player.maxPop += 2;
+          updateUi(); saveGame();
+      } else { setInfoText(`Yetersiz Odun (${cost})`); }
+  };
+
   const sendChat = () => {
       if(!chatInput.trim()) return;
       const msg = { user: gs.current.player.username, text: chatInput, time: Date.now() };
       push(ref(db, 'global_chat'), msg);
       setChatInput("");
-  };
-
-  const handleLoginBtn = async () => {
-      if(!usernameInput || pinInput.length !== 4) return;
-      const usersRef = ref(db, 'empires_final');
-      const q = query(usersRef, orderByChild('player/username'), equalTo(usernameInput));
-      const snap = await get(q);
-      
-      if(snap.exists()) {
-          let uid = Object.keys(snap.val())[0];
-          if(snap.val()[uid].player.pin === pinInput) {
-              localStorage.setItem("orman_v32_uid", uid);
-              gs.current.userId = uid; connectToDb(uid); setLoginModal(false);
-          } else { setLoginError("Yanlış PIN"); }
-      } else {
-          const newUid = "u_" + Date.now();
-          gs.current.player.username = usernameInput; gs.current.player.pin = pinInput; gs.current.userId = newUid;
-          localStorage.setItem("orman_v32_uid", newUid);
-          initNewPlayer(newUid); setLoginModal(false);
-      }
   };
 
   const checkDailyReward = () => {};
